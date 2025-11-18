@@ -254,18 +254,18 @@ else
     exit 1
 fi
 
-# Step 9: Setup PipeWire Echo Cancellation
-log_info "Setting up PipeWire Echo Cancellation..."
+# Step 9: Setup PipeWire (basic check)
+log_info "Checking PipeWire installation..."
 
-if [ -f "$WRAPPER_DIR/pipewire/setup-aec.sh" ]; then
-    cd "$WRAPPER_DIR/pipewire"
-    chmod +x setup-aec.sh
-    ./setup-aec.sh
-    log_success "PipeWire Echo Cancellation configured"
+if systemctl --user is-active --quiet pipewire 2>/dev/null; then
+    log_success "PipeWire is running"
 else
-    log_error "PipeWire setup script not found at $WRAPPER_DIR/pipewire/setup-aec.sh"
-    exit 1
+    log_warning "PipeWire is not running (audio may not work)"
+    log_info "To start PipeWire: systemctl --user start pipewire pipewire-pulse"
 fi
+
+log_info "Audio devices will use default PipeWire configuration"
+log_info "For echo cancellation, manual PipeWire configuration is required"
 
 # Step 10: Setup agent-launcher systemd service
 log_info "Setting up agent-launcher systemd service..."
@@ -299,12 +299,6 @@ else
     log_warning "✗ OpenTelemetry Collector service not enabled"
 fi
 
-if systemctl --user is-enabled --quiet pipewire-aec 2>/dev/null; then
-    log_success "✓ PipeWire AEC service enabled"
-else
-    log_warning "✗ PipeWire AEC service not enabled"
-fi
-
 if systemctl is-enabled --quiet agent-launcher; then
     log_success "✓ Agent launcher service enabled"
 else
@@ -334,7 +328,6 @@ echo ""
 echo "3. Check service status:"
 echo "   sudo systemctl status agent-launcher"
 echo "   sudo systemctl status otelcol"
-echo "   systemctl --user status pipewire-aec"
 echo ""
 echo "4. View logs:"
 echo "   sudo journalctl -u agent-launcher -f"

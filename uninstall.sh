@@ -72,13 +72,6 @@ else
     log_info "otelcol service not running"
 fi
 
-if systemctl --user is-active --quiet pipewire-aec 2>/dev/null; then
-    systemctl --user stop pipewire-aec
-    log_success "Stopped pipewire-aec service"
-else
-    log_info "pipewire-aec service not running"
-fi
-
 # Step 2: Disable all services
 log_info "Disabling services..."
 
@@ -92,11 +85,6 @@ if systemctl is-enabled --quiet otelcol 2>/dev/null; then
     log_success "Disabled otelcol service"
 fi
 
-if systemctl --user is-enabled --quiet pipewire-aec 2>/dev/null; then
-    systemctl --user disable pipewire-aec
-    log_success "Disabled pipewire-aec service"
-fi
-
 # Step 3: Remove systemd service files
 log_info "Removing systemd service files..."
 
@@ -108,11 +96,6 @@ fi
 if [ -f "/etc/systemd/system/otelcol.service" ]; then
     sudo rm /etc/systemd/system/otelcol.service
     log_success "Removed otelcol.service"
-fi
-
-if [ -f "$HOME/.config/systemd/user/pipewire-aec.service" ]; then
-    rm "$HOME/.config/systemd/user/pipewire-aec.service"
-    log_success "Removed pipewire-aec.service"
 fi
 
 # Step 4: Reload systemd
@@ -232,12 +215,10 @@ echo ""
 echo "✓ Services stopped and disabled:"
 echo "  - agent-launcher.service"
 echo "  - otelcol.service"
-echo "  - pipewire-aec.service"
 echo ""
 echo "✓ Service files removed:"
 echo "  - /etc/systemd/system/agent-launcher.service"
 echo "  - /etc/systemd/system/otelcol.service"
-echo "  - ~/.config/systemd/user/pipewire-aec.service"
 echo ""
 echo "✓ OpenTelemetry Collector removed:"
 echo "  - /usr/local/bin/otelcol"

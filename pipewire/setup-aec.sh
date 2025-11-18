@@ -48,32 +48,13 @@ else
     echo "   This may require manual PipeWire configuration"
 fi
 
-# Create systemd user service for PipeWire AEC management
-echo "🔧 Creating systemd user service..."
-mkdir -p ~/.config/systemd/user
-
-cat > ~/.config/systemd/user/pipewire-aec.service <<'EOF'
-[Unit]
-Description=PipeWire Echo Cancellation Manager
-After=pipewire.service pipewire-pulse.service
-Requires=pipewire.service pipewire-pulse.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/bash -c 'sleep 2 && pactl list short sources | grep -q echo_cancel || (systemctl --user restart wireplumber && systemctl --user restart pipewire pipewire-pulse)'
-
-[Install]
-WantedBy=default.target
-EOF
-
-echo "✓ Service file created at ~/.config/systemd/user/pipewire-aec.service"
-
-# Enable the service
-echo "🚀 Enabling PipeWire AEC service..."
-systemctl --user daemon-reload
-systemctl --user enable pipewire-aec.service
-systemctl --user start pipewire-aec.service
+# Note: Echo cancellation requires manual PipeWire configuration
+echo ""
+echo "⚠️  Note: Echo cancellation requires manual PipeWire configuration"
+echo "   The Raspberry Pi client will use the default audio devices."
+echo "   For echo cancellation, please configure PipeWire manually:"
+echo "   - See: https://docs.pipewire.org/page_module_echo_cancel.html"
+echo ""
 
 echo ""
 echo "========================================="

@@ -100,7 +100,7 @@ The installer will:
 6. ✓ Install Python requirements
 7. ✓ **Prompt for configuration** (Device ID, OTEL endpoint, Environment)
 8. ✓ Setup OpenTelemetry Collector with systemd service
-9. ✓ Configure PipeWire echo cancellation
+9. ✓ Verify PipeWire is running (for audio)
 10. ✓ Setup agent-launcher systemd service (with auto-restart)
 11. ✓ Create .env template files
 
@@ -153,7 +153,6 @@ sudo systemctl restart agent-launcher
 # Check status
 sudo systemctl status otelcol
 sudo systemctl status agent-launcher
-systemctl --user status pipewire-aec
 ```
 
 ### 6. View Logs
@@ -192,8 +191,7 @@ When the Raspberry Pi boots:
 
 1. **Network Wait**: `agent-launcher.service` waits for network-online.target
 2. **OTEL Start**: OpenTelemetry Collector starts (dependency)
-3. **PipeWire AEC**: Echo cancellation initializes (user service)
-4. **Launch Script**: `launch.sh` is executed by systemd
+3. **Launch Script**: `launch.sh` is executed by systemd
 
 ### Launch Script Flow
 
@@ -227,7 +225,6 @@ The `launch.sh` script runs on every boot:
 | Service | Type | Purpose | Auto-Start | Auto-Restart |
 |---------|------|---------|------------|--------------|
 | `otelcol.service` | System | OpenTelemetry Collector | ✓ Yes | ✓ Yes |
-| `pipewire-aec.service` | User | Echo Cancellation Manager | ✓ Yes | ✓ Yes |
 | `agent-launcher.service` | System | Client Launcher & Updater | ✓ Yes | ✓ Yes (unlimited) |
 
 ## Manual Operations
@@ -327,20 +324,43 @@ sudo journalctl -u agent-launcher -n 100
 sudo journalctl -u agent-launcher | grep -i error
 ```
 
-### No Audio / Echo Cancellation Issues
+### Audio Issues (No Microphone/Speaker Detected)
 
-**Verify PipeWire:**
+**Problem**: Audio devices not detected after installation
+
+**Quick Fix**: Run the audio fix script:
 ```bash
-systemctl --user status pipewire-aec
-pactl list short sources | grep echo_cancel
-pactl list short sinks | grep echo_cancel
+cd ~/raspberry-pi-client-wrapper
+./fix-audio.sh
 ```
 
-**Restart PipeWire:**
+This script will:
+- Remove problematic service configurations
+- Reset failed PipeWire services
+- Restart audio services properly
+- List available audio devices
+
+**Manual fix:**
 ```bash
-systemctl --user restart pipewire-aec
+# Reset failed services
+systemctl --user reset-failed
+
+# Restart PipeWire services
 systemctl --user restart wireplumber
 systemctl --user restart pipewire pipewire-pulse
+
+# Check audio devices
+pactl list short sources  # microphones
+pactl list short sinks    # speakers
+```
+
+**Test audio:**
+```bash
+# Test speaker
+speaker-test -c2 -t wav
+
+# Test microphone
+arecord -d 5 test.wav && aplay test.wav
 ```
 
 ### OpenTelemetry Collector Issues
@@ -500,7 +520,6 @@ sudo reboot
 ### Service Files
 - **Agent Launcher**: `/etc/systemd/system/agent-launcher.service`
 - **OTEL Collector**: `/etc/systemd/system/otelcol.service`
-- **PipeWire AEC**: `~/.config/systemd/user/pipewire-aec.service`
 
 ## Performance Optimizations
 
