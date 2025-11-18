@@ -8,7 +8,7 @@ set -e
 WRAPPER_DIR="$HOME/raspberry-pi-client-wrapper"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
-GIT_REPO_URL="https://github.com/companionsand/raspberry-pi-client"
+GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"
 GIT_BRANCH="main"
 
 # Logging

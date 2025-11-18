@@ -45,7 +45,30 @@ raspberry-pi-client-wrapper/
 
 ## Quick Start
 
-### 1. Copy Wrapper to Pi
+### 1. Setup GitHub SSH Access (Required)
+
+Since the `raspberry-pi-client` repository is private, you need to set up SSH keys on your Raspberry Pi first:
+
+```bash
+# SSH into your Pi
+ssh pi@raspberrypi.local
+
+# Generate SSH key
+ssh-keygen -t ed25519 -C "your_email@example.com"
+# Press Enter to accept defaults
+
+# Display your public key
+cat ~/.ssh/id_ed25519.pub
+
+# Copy the output and add it to GitHub:
+# https://github.com/settings/ssh/new
+
+# Test the connection
+ssh -T git@github.com
+# You should see: "Hi <username>! You've successfully authenticated..."
+```
+
+### 2. Copy Wrapper to Pi
 
 Copy this entire `raspberry-pi-client-wrapper` directory to your Raspberry Pi:
 
@@ -57,7 +80,7 @@ scp -r raspberry-pi-client-wrapper pi@raspberrypi.local:~/
 rsync -av raspberry-pi-client-wrapper pi@raspberrypi.local:~/
 ```
 
-### 2. Run Installation Script
+### 3. Run Installation Script
 
 SSH into your Raspberry Pi and run the installer:
 
@@ -70,15 +93,16 @@ chmod +x install.sh
 
 The installer will:
 1. ✓ Check system compatibility
-2. ✓ Install system dependencies (Python, PipeWire, audio libraries)
-3. ✓ Clone the raspberry-pi-client repository
-4. ✓ Create Python virtual environment
-5. ✓ Install Python requirements
-6. ✓ **Prompt for configuration** (Device ID, OTEL endpoint, Environment)
-7. ✓ Setup OpenTelemetry Collector with systemd service
-8. ✓ Configure PipeWire echo cancellation
-9. ✓ Setup agent-launcher systemd service (with auto-restart)
-10. ✓ Create .env template files
+2. ✓ **Verify GitHub SSH access** (exits with instructions if not configured)
+3. ✓ Install system dependencies (Python, PipeWire, audio libraries)
+4. ✓ Clone the raspberry-pi-client repository
+5. ✓ Create Python virtual environment
+6. ✓ Install Python requirements
+7. ✓ **Prompt for configuration** (Device ID, OTEL endpoint, Environment)
+8. ✓ Setup OpenTelemetry Collector with systemd service
+9. ✓ Configure PipeWire echo cancellation
+10. ✓ Setup agent-launcher systemd service (with auto-restart)
+11. ✓ Create .env template files
 
 **Installation takes 5-10 minutes** depending on your Pi model and internet speed.
 
@@ -91,7 +115,7 @@ During installation, you'll be asked to provide:
 
 These values will be automatically configured in the system.
 
-### 3. Configure API Keys and Credentials
+### 4. Configure API Keys and Credentials
 
 After installation, configure the client with your API keys:
 
@@ -117,7 +141,7 @@ PICOVOICE_ACCESS_KEY=your-picovoice-access-key-here
 
 **Note:** Device ID, OTEL endpoint, and environment are already configured from the installation prompts. You only need to add your API keys and credentials.
 
-### 4. Start Services
+### 5. Start Services
 
 ```bash
 # Start OpenTelemetry Collector
@@ -132,7 +156,7 @@ sudo systemctl status agent-launcher
 systemctl --user status pipewire-aec
 ```
 
-### 5. View Logs
+### 6. View Logs
 
 ```bash
 # Agent launcher logs (main application)
@@ -239,6 +263,36 @@ sudo systemctl start agent-launcher
 ```
 
 ## Troubleshooting
+
+### GitHub SSH Authentication Fails
+
+**Problem**: Installation fails with "GitHub SSH authentication failed!"
+
+**Solution:**
+```bash
+# 1. Generate SSH key if you haven't already
+ssh-keygen -t ed25519 -C "your_email@example.com"
+
+# 2. Display your public key
+cat ~/.ssh/id_ed25519.pub
+
+# 3. Copy the entire output and add it to GitHub:
+# Go to: https://github.com/settings/ssh/new
+# Paste the key and save
+
+# 4. Test the connection
+ssh -T git@github.com
+# Expected output: "Hi <username>! You've successfully authenticated..."
+
+# 5. Re-run the installer
+cd ~/raspberry-pi-client-wrapper
+./install.sh
+```
+
+**Common SSH issues:**
+- Permission denied: SSH key not added to GitHub
+- Host key verification failed: Run `ssh -T git@github.com` and accept the host key
+- No route to host: Check internet connection
 
 ### Agent Won't Start
 
@@ -429,9 +483,10 @@ sudo reboot
 ## Configuration Reference
 
 ### Git Repository
-- **URL**: `https://github.com/companionsand/raspberry-pi-client`
+- **URL**: `git@github.com:companionsand/raspberry-pi-client.git` (SSH)
 - **Branch**: `main`
 - **Clone Location**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/`
+- **Authentication**: Requires SSH key added to GitHub account
 
 ### Paths
 - **Wrapper**: `~/raspberry-pi-client-wrapper/`

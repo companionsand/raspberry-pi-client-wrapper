@@ -8,7 +8,7 @@ set -e
 WRAPPER_DIR="$HOME/raspberry-pi-client-wrapper"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
-GIT_REPO_URL="https://github.com/companionsand/raspberry-pi-client"
+GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"
 GIT_BRANCH="main"
 
 # Colors for output
@@ -86,7 +86,34 @@ sudo apt install -y \
 
 log_success "System dependencies installed"
 
-# Step 2: Clone repository
+# Step 2: Verify GitHub SSH access
+log_info "Verifying GitHub SSH access..."
+if ! ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+    log_error "GitHub SSH authentication failed!"
+    echo ""
+    echo "The repository is private and requires SSH key authentication."
+    echo ""
+    echo "Please set up SSH keys on this Raspberry Pi:"
+    echo ""
+    echo "1. Generate SSH key (if not already done):"
+    echo "   ssh-keygen -t ed25519 -C \"your_email@example.com\""
+    echo ""
+    echo "2. Display your public key:"
+    echo "   cat ~/.ssh/id_ed25519.pub"
+    echo ""
+    echo "3. Add the key to your GitHub account:"
+    echo "   https://github.com/settings/ssh/new"
+    echo ""
+    echo "4. Test the connection:"
+    echo "   ssh -T git@github.com"
+    echo ""
+    echo "5. Re-run this installer"
+    echo ""
+    exit 1
+fi
+log_success "GitHub SSH access verified"
+
+# Step 3: Clone repository
 log_info "Setting up repository..."
 
 if [ ! -d "$CLIENT_DIR" ]; then
@@ -103,7 +130,7 @@ else
     log_success "Repository updated"
 fi
 
-# Step 3: Create Python virtual environment
+# Step 4: Create Python virtual environment
 log_info "Creating Python virtual environment..."
 
 if [ ! -d "$VENV_DIR" ]; then
@@ -118,7 +145,7 @@ source "$VENV_DIR/bin/activate"
 pip install --upgrade pip -q
 log_success "Python environment ready"
 
-# Step 4: Install Python requirements
+# Step 5: Install Python requirements
 log_info "Installing Python requirements..."
 
 if [ -f "$CLIENT_DIR/requirements.txt" ]; then
@@ -128,7 +155,7 @@ else
     log_warning "requirements.txt not found, skipping..."
 fi
 
-# Step 5: Prompt for configuration
+# Step 6: Prompt for configuration
 echo ""
 echo "========================================="
 echo "  Configuration Setup"
@@ -158,7 +185,7 @@ ENV_INPUT=${ENV_INPUT:-production}
 
 log_success "Configuration details captured"
 
-# Step 6: Create .env template
+# Step 7: Create .env template
 log_info "Creating .env template..."
 
 if [ ! -f "$CLIENT_DIR/.env" ]; then
@@ -197,7 +224,7 @@ else
     log_info ".env file already exists, skipping..."
 fi
 
-# Step 7: Setup OpenTelemetry Collector
+# Step 8: Setup OpenTelemetry Collector
 log_info "Setting up OpenTelemetry Collector..."
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -226,7 +253,7 @@ else
     exit 1
 fi
 
-# Step 8: Setup PipeWire Echo Cancellation
+# Step 9: Setup PipeWire Echo Cancellation
 log_info "Setting up PipeWire Echo Cancellation..."
 
 if [ -f "$SCRIPT_DIR/pipewire/setup-aec.sh" ]; then
@@ -239,7 +266,7 @@ else
     exit 1
 fi
 
-# Step 9: Setup agent-launcher systemd service
+# Step 10: Setup agent-launcher systemd service
 log_info "Setting up agent-launcher systemd service..."
 
 if [ -f "$SCRIPT_DIR/services/agent-launcher.service" ]; then
