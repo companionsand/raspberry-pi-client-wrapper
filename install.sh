@@ -254,18 +254,55 @@ else
     exit 1
 fi
 
-# Step 9: Setup PipeWire (basic check)
-log_info "Checking PipeWire installation..."
+# Step 9: Setup PipeWire and Echo Cancellation
+log_info "Setting up PipeWire and Echo Cancellation..."
 
 if systemctl --user is-active --quiet pipewire 2>/dev/null; then
     log_success "PipeWire is running"
 else
     log_warning "PipeWire is not running (audio may not work)"
-    log_info "To start PipeWire: systemctl --user start pipewire pipewire-pulse"
+    log_info "Starting PipeWire services..."
+    systemctl --user start pipewire pipewire-pulse wireplumber
+    sleep 2
 fi
 
-log_info "Audio devices will use default PipeWire configuration"
-log_info "For echo cancellation, manual PipeWire configuration is required"
+# Run echo cancellation setup
+echo ""
+if [ -f "$WRAPPER_DIR/pipewire/setup-echo-cancel.sh" ]; then
+    log_info "Configuring echo cancellation for barge-in capability..."
+    cd "$WRAPPER_DIR/pipewire"
+    chmod +x setup-echo-cancel.sh
+    ./setup-echo-cancel.sh
+    
+    # Check if echo cancellation was set up successfully
+    if pactl list short sources | grep -q "echo_cancel.mic"; then
+        log_success "Echo cancellation configured successfully"
+        
+        # Automatically update .env with echo cancel devices
+        if [ -f "$CLIENT_DIR/.env" ]; then
+            log_info "Updating .env with echo cancellation devices..."
+            # Update MIC_DEVICE if it exists
+            if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
+                sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
+            else
+                echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
+            fi
+            # Update SPEAKER_DEVICE if it exists
+            if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
+                sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
+            else
+                echo "SPEAKER_DEVICE=echo_cancel.speaker" >> "$CLIENT_DIR/.env"
+            fi
+            log_success ".env updated with echo cancellation devices"
+        fi
+    else
+        log_warning "Echo cancellation setup incomplete"
+        log_info "You may need to configure it manually later"
+    fi
+else
+    log_error "Echo cancellation setup script not found at $WRAPPER_DIR/pipewire/setup-echo-cancel.sh"
+    exit 1
+fi
 
 # Step 10: Setup agent-launcher systemd service
 log_info "Setting up agent-launcher systemd service..."

@@ -19,15 +19,18 @@ This wrapper automates the setup and management of the Kin AI voice assistant cl
 raspberry-pi-client-wrapper/
 ├── install.sh                 # One-time installation script
 ├── launch.sh                  # Runtime launcher (run by systemd)
+├── uninstall.sh               # Uninstallation script
 ├── otel/
 │   ├── install-collector.sh  # OpenTelemetry collector installer
-│   └── otel-collector-config.yaml
+│   ├── otel-collector-config.yaml
+│   └── .cache/                # Downloaded tarballs (gitignored)
 ├── pipewire/
-│   └── setup-aec.sh          # Echo cancellation setup
+│   ├── setup-echo-cancel.sh   # Echo cancellation setup (auto-called)
+│   └── fix-audio.sh           # Audio troubleshooting script
 ├── services/
 │   └── agent-launcher.service # Systemd service template
-├── raspberry-pi-client/      # Git cloned here (gitignored)
-└── README.md                 # This file
+├── raspberry-pi-client/       # Git cloned here (gitignored)
+└── README.md                  # This file
 ```
 
 ## Prerequisites
@@ -100,9 +103,9 @@ The installer will:
 6. ✓ Install Python requirements
 7. ✓ **Prompt for configuration** (Device ID, OTEL endpoint, Environment)
 8. ✓ Setup OpenTelemetry Collector with systemd service
-9. ✓ Verify PipeWire is running (for audio)
+9. ✓ **Setup Echo Cancellation** (prompts for microphone and speaker selection)
 10. ✓ Setup agent-launcher systemd service (with auto-restart)
-11. ✓ Create .env template files
+11. ✓ Create .env template files (with echo cancellation devices pre-configured)
 
 **Installation takes 5-10 minutes** depending on your Pi model and internet speed.
 
@@ -112,8 +115,10 @@ During installation, you'll be asked to provide:
 - **Device ID**: Your unique device identifier
 - **OTEL Central Collector Endpoint**: Your central telemetry collector URL (e.g., `https://your-collector.onrender.com:4318`)
 - **Environment**: Deployment environment (production/staging/development)
+- **Microphone Device**: Your USB microphone device name (from PulseAudio device list)
+- **Speaker Device**: Your USB speaker device name (from PulseAudio device list)
 
-These values will be automatically configured in the system.
+These values will be automatically configured in the system and `.env` file.
 
 ### 4. Configure API Keys and Credentials
 
@@ -227,6 +232,112 @@ The `launch.sh` script runs on every boot:
 | `otelcol.service` | System | OpenTelemetry Collector | ✓ Yes | ✓ Yes |
 | `agent-launcher.service` | System | Client Launcher & Updater | ✓ Yes | ✓ Yes (unlimited) |
 
+## Echo Cancellation (Automatic During Install)
+
+### What is Echo Cancellation?
+
+Echo cancellation (AEC) allows the device to:
+- Play audio (AI speaking) through speakers
+- Record audio (user speaking) through microphone
+- Filter out the AI's voice from the microphone input
+- Enable "barge-in" (user can interrupt the AI)
+
+Without AEC, the microphone picks up the speaker's output, causing feedback loops.
+
+### Automatic Setup During Installation
+
+**Echo cancellation is configured automatically during `install.sh`:**
+
+1. The installer lists all available audio devices
+2. You select your microphone and speaker devices
+3. PipeWire configuration is created automatically
+4. Virtual devices `echo_cancel.mic` and `echo_cancel.speaker` are created
+5. `.env` file is automatically updated with these devices
+
+**No additional setup required!**
+
+### Manual Reconfiguration
+
+If you need to change your audio devices later, run:
+
+```bash
+cd ~/raspberry-pi-client-wrapper/pipewire
+./setup-echo-cancel.sh
+```
+
+This will:
+- Re-list your audio devices
+- Let you select different devices
+- Update the configuration
+- Restart services automatically
+
+### Configuration Details
+
+The script creates: `~/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf`
+
+This configuration:
+- Uses WebRTC AEC algorithm (high quality)
+- Creates virtual devices: `echo_cancel.mic` and `echo_cancel.speaker`
+- Routes audio through echo cancellation filter
+- Disables analog gain control for better quality
+
+### Testing Echo Cancellation
+
+```bash
+# Start playing audio in one terminal
+speaker-test -D echo_cancel.speaker -c2 -t wav
+
+# Record in another terminal
+arecord -D echo_cancel.mic -d 10 test.wav
+
+# Play back the recording
+aplay test.wav
+
+# The recording should NOT contain the speaker-test audio
+```
+
+### Troubleshooting AEC
+
+**Problem**: echo_cancel devices not created
+
+```bash
+# Check PipeWire logs
+journalctl --user -u pipewire-pulse -n 50
+
+# Verify config file exists
+cat ~/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf
+
+# Restart services
+systemctl --user restart wireplumber
+systemctl --user restart pipewire pipewire-pulse
+```
+
+**Problem**: Device names changed after reboot
+
+USB device names can change. If this happens:
+```bash
+# List current devices
+pactl list short sources
+pactl list short sinks
+
+# Re-run setup with new device names
+cd ~/raspberry-pi-client-wrapper/pipewire
+./setup-echo-cancel.sh
+```
+
+### Removing Echo Cancellation
+
+```bash
+# Remove configuration
+rm ~/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf
+
+# Restart PipeWire
+systemctl --user restart pipewire pipewire-pulse
+
+# Update .env to use original devices
+nano ~/raspberry-pi-client-wrapper/raspberry-pi-client/.env
+```
+
 ## Manual Operations
 
 ### Manually Update Code
@@ -330,7 +441,7 @@ sudo journalctl -u agent-launcher | grep -i error
 
 **Quick Fix**: Run the audio fix script:
 ```bash
-cd ~/raspberry-pi-client-wrapper
+cd ~/raspberry-pi-client-wrapper/pipewire
 ./fix-audio.sh
 ```
 
