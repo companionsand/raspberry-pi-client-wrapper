@@ -1,0 +1,100 @@
+# OpenTelemetry Collector Configuration for Raspberry Pi
+# This collector runs locally on each Pi and forwards to the central collector
+
+receivers:
+  # OTLP receiver for local application
+  otlp:
+    protocols:
+      grpc:
+        endpoint: localhost:4317
+      http:
+        endpoint: localhost:4318
+
+processors:
+  # Batch processor - improves performance
+  batch:
+    timeout: 10s
+    send_batch_size: 512
+    send_batch_max_size: 1024
+
+  # Memory limiter - prevent OOM on Pi
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128  # Low limit for Raspberry Pi
+    spike_limit_mib: 32
+
+  # Add resource attributes
+  resource:
+    attributes:
+      - key: service.namespace
+        value: kin-voice-ai
+        action: insert
+      - key: deployment.environment
+        from_attribute: ENV
+        action: insert
+      - key: device.id
+        from_attribute: DEVICE_ID
+        action: insert
+
+exporters:
+  # Forward to central collector
+  otlp/central:
+    endpoint: ${OTEL_CENTRAL_COLLECTOR_ENDPOINT}
+    compression: gzip
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 300s  # Up to 5 minutes
+      max_elapsed_time: 0  # Retry indefinitely
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 10000  # Large queue for network failures
+      storage: file_storage  # Persist to disk
+
+  # Debug exporter for local troubleshooting
+  # logging:
+  #   loglevel: debug
+
+extensions:
+  # Health check extension
+  health_check:
+    endpoint: localhost:13133
+
+  # File storage for persistence during network failures
+  file_storage:
+    directory: /var/lib/otelcol/data
+    timeout: 10s
+    compaction:
+      directory: /var/lib/otelcol/data
+      on_start: true
+      on_rebound: true
+      rebound_needed_threshold_mib: 50
+      rebound_trigger_threshold_mib: 100
+
+service:
+  extensions: [health_check, file_storage]
+  
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp/central]
+    
+    # Metrics pipeline
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp/central]
+    
+    # Logs pipeline
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp/central]
+
+  telemetry:
+    logs:
+      level: info
+

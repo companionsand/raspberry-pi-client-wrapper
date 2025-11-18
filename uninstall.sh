@@ -1,0 +1,277 @@
+#!/bin/bash
+# Kin AI Raspberry Pi Client Wrapper - Uninstallation Script
+# This script removes all components installed by install.sh
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Configuration
+WRAPPER_DIR="$HOME/raspberry-pi-client-wrapper"
+CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
+
+# Logging functions
+log_info() {
+    echo -e "${BLUE}[INFO] $1${NC}"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS] $1${NC}"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING] $1${NC}"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR] $1${NC}"
+}
+
+# Print header
+echo ""
+echo "========================================="
+echo "  Kin AI Client - Uninstaller"
+echo "========================================="
+echo ""
+log_warning "This will remove ALL components installed by install.sh"
+echo ""
+
+# Confirm uninstallation
+read -p "Are you sure you want to uninstall? (yes/no): " CONFIRM
+if [ "$CONFIRM" != "yes" ]; then
+    log_info "Uninstallation cancelled"
+    exit 0
+fi
+
+echo ""
+log_info "Starting uninstallation..."
+echo ""
+
+# Step 1: Stop all services
+log_info "Stopping services..."
+
+if systemctl is-active --quiet agent-launcher 2>/dev/null; then
+    sudo systemctl stop agent-launcher
+    log_success "Stopped agent-launcher service"
+else
+    log_info "agent-launcher service not running"
+fi
+
+if systemctl is-active --quiet otelcol 2>/dev/null; then
+    sudo systemctl stop otelcol
+    log_success "Stopped otelcol service"
+else
+    log_info "otelcol service not running"
+fi
+
+if systemctl --user is-active --quiet pipewire-aec 2>/dev/null; then
+    systemctl --user stop pipewire-aec
+    log_success "Stopped pipewire-aec service"
+else
+    log_info "pipewire-aec service not running"
+fi
+
+# Step 2: Disable all services
+log_info "Disabling services..."
+
+if systemctl is-enabled --quiet agent-launcher 2>/dev/null; then
+    sudo systemctl disable agent-launcher
+    log_success "Disabled agent-launcher service"
+fi
+
+if systemctl is-enabled --quiet otelcol 2>/dev/null; then
+    sudo systemctl disable otelcol
+    log_success "Disabled otelcol service"
+fi
+
+if systemctl --user is-enabled --quiet pipewire-aec 2>/dev/null; then
+    systemctl --user disable pipewire-aec
+    log_success "Disabled pipewire-aec service"
+fi
+
+# Step 3: Remove systemd service files
+log_info "Removing systemd service files..."
+
+if [ -f "/etc/systemd/system/agent-launcher.service" ]; then
+    sudo rm /etc/systemd/system/agent-launcher.service
+    log_success "Removed agent-launcher.service"
+fi
+
+if [ -f "/etc/systemd/system/otelcol.service" ]; then
+    sudo rm /etc/systemd/system/otelcol.service
+    log_success "Removed otelcol.service"
+fi
+
+if [ -f "$HOME/.config/systemd/user/pipewire-aec.service" ]; then
+    rm "$HOME/.config/systemd/user/pipewire-aec.service"
+    log_success "Removed pipewire-aec.service"
+fi
+
+# Step 4: Reload systemd
+log_info "Reloading systemd..."
+sudo systemctl daemon-reload
+systemctl --user daemon-reload 2>/dev/null || true
+log_success "Systemd reloaded"
+
+# Step 5: Remove OpenTelemetry Collector
+log_info "Removing OpenTelemetry Collector..."
+
+if [ -f "/usr/local/bin/otelcol" ]; then
+    sudo rm /usr/local/bin/otelcol
+    log_success "Removed otelcol binary"
+fi
+
+if [ -d "/etc/otelcol" ]; then
+    sudo rm -rf /etc/otelcol
+    log_success "Removed /etc/otelcol directory"
+fi
+
+if [ -d "/var/lib/otelcol" ]; then
+    sudo rm -rf /var/lib/otelcol
+    log_success "Removed /var/lib/otelcol directory"
+fi
+
+if [ -d "/var/log/otelcol" ]; then
+    sudo rm -rf /var/log/otelcol
+    log_success "Removed /var/log/otelcol directory"
+fi
+
+# Step 6: Remove cloned repository and virtual environment
+log_info "Removing cloned repository..."
+
+if [ -d "$CLIENT_DIR" ]; then
+    rm -rf "$CLIENT_DIR"
+    log_success "Removed $CLIENT_DIR"
+fi
+
+# Step 7: Ask about removing wrapper directory
+echo ""
+read -p "Remove entire wrapper directory ($WRAPPER_DIR)? (yes/no): " REMOVE_WRAPPER
+if [ "$REMOVE_WRAPPER" = "yes" ]; then
+    cd "$HOME"
+    rm -rf "$WRAPPER_DIR"
+    log_success "Removed wrapper directory"
+    WRAPPER_REMOVED=true
+else
+    log_info "Keeping wrapper directory (scripts and configs preserved)"
+    WRAPPER_REMOVED=false
+fi
+
+# Step 8: Ask about removing system packages
+echo ""
+log_warning "The following system packages were installed:"
+echo "  - python3-pip, python3-venv, python3-pyaudio"
+echo "  - portaudio19-dev, alsa-utils"
+echo "  - pipewire, wireplumber, libspa-0.2-modules"
+echo "  - git, curl, wget"
+echo ""
+log_warning "These packages may be used by other applications."
+read -p "Remove installed packages? (yes/no): " REMOVE_PACKAGES
+
+if [ "$REMOVE_PACKAGES" = "yes" ]; then
+    log_info "Removing packages..."
+    sudo apt remove -y \
+        python3-pip \
+        python3-venv \
+        portaudio19-dev \
+        python3-pyaudio \
+        alsa-utils \
+        pipewire \
+        wireplumber \
+        libspa-0.2-modules \
+        2>/dev/null || log_warning "Some packages could not be removed (may not have been installed)"
+    
+    log_info "Cleaning up unused dependencies..."
+    sudo apt autoremove -y
+    log_success "Packages removed"
+else
+    log_info "System packages preserved"
+fi
+
+# Step 9: Clean up any remaining PipeWire user configurations
+log_info "Cleaning up PipeWire user configurations..."
+if [ -d "$HOME/.config/pipewire" ]; then
+    # Don't remove the entire directory, just check if we created any specific configs
+    log_info "PipeWire user config directory exists (not removing, may contain other configs)"
+fi
+
+# Final summary
+echo ""
+echo "========================================="
+log_success "Uninstallation Complete!"
+echo "========================================="
+echo ""
+echo "Summary of removed components:"
+echo ""
+echo "✓ Services stopped and disabled:"
+echo "  - agent-launcher.service"
+echo "  - otelcol.service"
+echo "  - pipewire-aec.service"
+echo ""
+echo "✓ Service files removed:"
+echo "  - /etc/systemd/system/agent-launcher.service"
+echo "  - /etc/systemd/system/otelcol.service"
+echo "  - ~/.config/systemd/user/pipewire-aec.service"
+echo ""
+echo "✓ OpenTelemetry Collector removed:"
+echo "  - /usr/local/bin/otelcol"
+echo "  - /etc/otelcol/"
+echo "  - /var/lib/otelcol/"
+echo "  - /var/log/otelcol/"
+echo ""
+echo "✓ Repository removed:"
+echo "  - $CLIENT_DIR"
+echo ""
+
+if [ "$WRAPPER_REMOVED" = true ]; then
+    echo "✓ Wrapper directory removed:"
+    echo "  - $WRAPPER_DIR"
+    echo ""
+fi
+
+if [ "$REMOVE_PACKAGES" = "yes" ]; then
+    echo "✓ System packages removed"
+    echo ""
+fi
+
+echo "Remaining traces:"
+echo ""
+
+if [ "$WRAPPER_REMOVED" = false ]; then
+    log_info "Wrapper directory still exists at: $WRAPPER_DIR"
+    log_info "You can manually remove it with: rm -rf $WRAPPER_DIR"
+    echo ""
+fi
+
+if [ "$REMOVE_PACKAGES" != "yes" ]; then
+    log_info "System packages (Python, PipeWire, etc.) are still installed"
+    log_info "These may be useful for other applications"
+    echo ""
+fi
+
+# Check for any remaining journal logs
+if sudo journalctl -u agent-launcher --no-pager -n 1 &>/dev/null; then
+    log_info "Service logs remain in system journal"
+    log_info "To remove: sudo journalctl --rotate && sudo journalctl --vacuum-time=1s"
+    echo ""
+fi
+
+echo "Your Raspberry Pi has been returned to a clean state!"
+echo ""
+
+# Offer to reboot
+read -p "Reboot now to complete cleanup? (yes/no): " REBOOT
+if [ "$REBOOT" = "yes" ]; then
+    log_info "Rebooting..."
+    sudo reboot
+else
+    log_info "Please reboot when convenient to complete the cleanup"
+fi
+
+echo ""
+

@@ -1,0 +1,38 @@
+[Unit]
+Description=Kin AI Agent Launcher
+Documentation=https://github.com/companionsand/raspberry-pi-client
+After=network-online.target otelcol.service
+Wants=network-online.target
+Requires=otelcol.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/raspberry-pi-client-wrapper
+ExecStart=/home/pi/raspberry-pi-client-wrapper/launch.sh
+
+# Auto-restart on crash/failure
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=0
+StartLimitBurst=0
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agent-launcher
+
+# Environment
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=100%
+
+# Ensure service keeps running
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+
