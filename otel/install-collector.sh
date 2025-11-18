@@ -8,6 +8,9 @@ echo "========================================="
 echo "Installing OpenTelemetry Collector on Raspberry Pi"
 echo "========================================="
 
+# Get script directory first (before changing directories)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Check if running on Raspberry Pi
 if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null; then
     echo "⚠️  Warning: This doesn't appear to be a Raspberry Pi"
@@ -55,7 +58,6 @@ sudo mkdir -p /var/log/otelcol
 
 # Copy configuration
 echo "📝 Installing configuration..."
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 if [ -f "$SCRIPT_DIR/otel-collector-config.yaml" ]; then
     sudo cp "$SCRIPT_DIR/otel-collector-config.yaml" /etc/otelcol/config.yaml
