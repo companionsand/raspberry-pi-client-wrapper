@@ -1,6 +1,9 @@
 # Cloned repository (managed by wrapper scripts)
 raspberry-pi-client/
 
+# Cache directory (downloaded files)
+otel/.cache/
+
 # Python
 __pycache__/
 *.py[cod]

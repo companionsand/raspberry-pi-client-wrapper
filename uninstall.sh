@@ -4,6 +4,9 @@
 
 set -e
 
+# Get the actual directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -12,7 +15,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-WRAPPER_DIR="$HOME/raspberry-pi-client-wrapper"
+WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 
 # Logging functions
@@ -149,6 +152,24 @@ if [ -d "$CLIENT_DIR" ]; then
     log_success "Removed $CLIENT_DIR"
 fi
 
+# Step 6.5: Ask about removing cached downloads
+if [ -d "$WRAPPER_DIR/otel/.cache" ]; then
+    echo ""
+    CACHE_SIZE=$(du -sh "$WRAPPER_DIR/otel/.cache" 2>/dev/null | cut -f1)
+    log_info "Found cached OpenTelemetry downloads ($CACHE_SIZE)"
+    read -p "Remove cached files? (Keeping them speeds up future reinstalls) (yes/no): " REMOVE_CACHE
+    if [ "$REMOVE_CACHE" = "yes" ]; then
+        rm -rf "$WRAPPER_DIR/otel/.cache"
+        log_success "Removed cache directory"
+        CACHE_REMOVED=true
+    else
+        log_info "Cache directory preserved for future use"
+        CACHE_REMOVED=false
+    fi
+else
+    CACHE_REMOVED=false
+fi
+
 # Step 7: Ask about removing wrapper directory
 echo ""
 read -p "Remove entire wrapper directory ($WRAPPER_DIR)? (yes/no): " REMOVE_WRAPPER
@@ -227,6 +248,16 @@ echo ""
 echo "✓ Repository removed:"
 echo "  - $CLIENT_DIR"
 echo ""
+
+if [ "$CACHE_REMOVED" = true ]; then
+    echo "✓ Cache directory removed:"
+    echo "  - $WRAPPER_DIR/otel/.cache/"
+    echo ""
+elif [ -d "$WRAPPER_DIR/otel/.cache" ]; then
+    echo "✓ Cache directory preserved:"
+    echo "  - $WRAPPER_DIR/otel/.cache/ (speeds up future reinstalls)"
+    echo ""
+fi
 
 if [ "$WRAPPER_REMOVED" = true ]; then
     echo "✓ Wrapper directory removed:"

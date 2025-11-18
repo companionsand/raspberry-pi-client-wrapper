@@ -38,15 +38,29 @@ echo "✓ Detected architecture: $ARCH (using $OTEL_ARCH)"
 OTEL_VERSION="0.109.0"
 DOWNLOAD_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_linux_${OTEL_ARCH}.tar.gz"
 
-echo "📥 Downloading OpenTelemetry Collector v${OTEL_VERSION}..."
-cd /tmp
-wget -q --show-progress "$DOWNLOAD_URL" -O otelcol.tar.gz
+# Cache directory for downloaded files
+CACHE_DIR="$SCRIPT_DIR/.cache"
+CACHED_TARBALL="$CACHE_DIR/otelcol-contrib_${OTEL_VERSION}_linux_${OTEL_ARCH}.tar.gz"
 
+# Create cache directory if it doesn't exist
+mkdir -p "$CACHE_DIR"
+
+# Check if tarball is already cached
+if [ -f "$CACHED_TARBALL" ]; then
+    echo "✓ Found cached OpenTelemetry Collector v${OTEL_VERSION}"
+    echo "📦 Using cached tarball from $CACHED_TARBALL"
+else
+    echo "📥 Downloading OpenTelemetry Collector v${OTEL_VERSION}..."
+    wget -q --show-progress "$DOWNLOAD_URL" -O "$CACHED_TARBALL"
+    echo "✓ Downloaded and cached to $CACHED_TARBALL"
+fi
+
+# Extract from cache
 echo "📦 Extracting..."
-tar -xzf otelcol.tar.gz
+cd /tmp
+tar -xzf "$CACHED_TARBALL"
 sudo mv otelcol-contrib /usr/local/bin/otelcol
 sudo chmod +x /usr/local/bin/otelcol
-rm otelcol.tar.gz
 
 echo "✓ OpenTelemetry Collector installed to /usr/local/bin/otelcol"
 

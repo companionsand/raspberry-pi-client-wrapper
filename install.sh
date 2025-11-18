@@ -4,8 +4,11 @@
 
 set -e
 
+# Get the actual directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Configuration
-WRAPPER_DIR="$HOME/raspberry-pi-client-wrapper"
+WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
 GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"
@@ -227,10 +230,8 @@ fi
 # Step 8: Setup OpenTelemetry Collector
 log_info "Setting up OpenTelemetry Collector..."
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-if [ -f "$SCRIPT_DIR/otel/install-collector.sh" ]; then
-    cd "$SCRIPT_DIR/otel"
+if [ -f "$WRAPPER_DIR/otel/install-collector.sh" ]; then
+    cd "$WRAPPER_DIR/otel"
     chmod +x install-collector.sh
     ./install-collector.sh
     log_success "OpenTelemetry Collector installed"
@@ -249,30 +250,30 @@ DEVICE_ID=$DEVICE_ID_INPUT
 EOF
     log_success "OpenTelemetry Collector configured with endpoint: $OTEL_ENDPOINT_INPUT"
 else
-    log_error "OpenTelemetry installer not found at $SCRIPT_DIR/otel/install-collector.sh"
+    log_error "OpenTelemetry installer not found at $WRAPPER_DIR/otel/install-collector.sh"
     exit 1
 fi
 
 # Step 9: Setup PipeWire Echo Cancellation
 log_info "Setting up PipeWire Echo Cancellation..."
 
-if [ -f "$SCRIPT_DIR/pipewire/setup-aec.sh" ]; then
-    cd "$SCRIPT_DIR/pipewire"
+if [ -f "$WRAPPER_DIR/pipewire/setup-aec.sh" ]; then
+    cd "$WRAPPER_DIR/pipewire"
     chmod +x setup-aec.sh
     ./setup-aec.sh
     log_success "PipeWire Echo Cancellation configured"
 else
-    log_error "PipeWire setup script not found at $SCRIPT_DIR/pipewire/setup-aec.sh"
+    log_error "PipeWire setup script not found at $WRAPPER_DIR/pipewire/setup-aec.sh"
     exit 1
 fi
 
 # Step 10: Setup agent-launcher systemd service
 log_info "Setting up agent-launcher systemd service..."
 
-if [ -f "$SCRIPT_DIR/services/agent-launcher.service" ]; then
+if [ -f "$WRAPPER_DIR/services/agent-launcher.service" ]; then
     # Update service file with correct paths
     sed "s|/home/pi/raspberry-pi-client-wrapper|$WRAPPER_DIR|g" \
-        "$SCRIPT_DIR/services/agent-launcher.service" | \
+        "$WRAPPER_DIR/services/agent-launcher.service" | \
         sudo tee /etc/systemd/system/agent-launcher.service > /dev/null
     
     # Update User= field if not running as pi
@@ -284,7 +285,7 @@ if [ -f "$SCRIPT_DIR/services/agent-launcher.service" ]; then
     sudo systemctl enable agent-launcher.service
     log_success "Agent launcher service installed and enabled"
 else
-    log_error "Agent launcher service file not found at $SCRIPT_DIR/services/agent-launcher.service"
+    log_error "Agent launcher service file not found at $WRAPPER_DIR/services/agent-launcher.service"
     exit 1
 fi
 

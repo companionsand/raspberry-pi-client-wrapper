@@ -4,8 +4,11 @@
 
 set -e
 
+# Get the actual directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Configuration
-WRAPPER_DIR="$HOME/raspberry-pi-client-wrapper"
+WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
 GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"

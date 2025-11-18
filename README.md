@@ -493,6 +493,7 @@ sudo reboot
 - **Client**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/`
 - **Venv**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/venv/`
 - **Client .env**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/.env`
+- **Cache**: `~/raspberry-pi-client-wrapper/otel/.cache/` (OpenTelemetry tarball)
 - **OTEL Config**: `/etc/otelcol/config.yaml`
 - **OTEL Env**: `/etc/otelcol/otelcol.env`
 
@@ -500,6 +501,35 @@ sudo reboot
 - **Agent Launcher**: `/etc/systemd/system/agent-launcher.service`
 - **OTEL Collector**: `/etc/systemd/system/otelcol.service`
 - **PipeWire AEC**: `~/.config/systemd/user/pipewire-aec.service`
+
+## Performance Optimizations
+
+### Cached Downloads
+
+The installer caches downloaded files to speed up reinstallations:
+
+**Location**: `~/raspberry-pi-client-wrapper/otel/.cache/`
+
+**What's cached:**
+- OpenTelemetry Collector tarball (~40MB)
+
+**Benefits:**
+- ✅ First installation: Downloads from internet
+- ✅ Subsequent installations: Uses cached file (10x faster)
+- ✅ Works offline after first download
+- ✅ Preserves bandwidth
+
+**Cache management:**
+```bash
+# Check cache size
+du -sh ~/raspberry-pi-client-wrapper/otel/.cache
+
+# Clear cache manually
+rm -rf ~/raspberry-pi-client-wrapper/otel/.cache
+
+# Uninstaller asks if you want to remove cache
+# (Keeping it speeds up future reinstalls)
+```
 
 ## Additional Documentation
 
