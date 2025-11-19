@@ -48,6 +48,43 @@ raspberry-pi-client-wrapper/
 
 ## Quick Start
 
+### Option A: Automated Installation (No Prompts)
+
+For a fully automated installation without any prompts:
+
+1. **Create `.env` file** from the template:
+   ```bash
+   cp env.example .env
+   nano .env
+   ```
+
+2. **Fill in all values** in `.env`:
+   ```bash
+   # Required values
+   DEVICE_ID=your-device-id
+   ENV=production
+   OTEL_CENTRAL_COLLECTOR_ENDPOINT=https://your-collector.onrender.com:4318
+   
+   # Client configuration (all required for no-prompt install)
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_ANON_KEY=your-key
+   EMAIL=your-email@example.com
+   PASSWORD=your-password
+   CONVERSATION_ORCHESTRATOR_URL=wss://your-backend.onrender.com/ws
+   ELEVENLABS_API_KEY=your-key
+   PICOVOICE_ACCESS_KEY=your-key
+   ```
+
+3. **Run installation** - completely automated:
+   ```bash
+   ./install.sh
+   # No prompts! Uses all values from .env
+   ```
+
+### Option B: Interactive Installation (With Prompts)
+
+If you prefer to enter values during installation or don't have all values yet:
+
 ### 1. Setup GitHub SSH Access (Required)
 
 Since the `raspberry-pi-client` repository is private, you need to set up SSH keys on your Raspberry Pi first:
@@ -109,6 +146,22 @@ The installer will:
 
 **Installation takes 5-10 minutes** depending on your Pi model and internet speed.
 
+#### Automatic Verification and Rollback
+
+After installation completes, `install.sh` automatically:
+1. ✓ Starts all services (OTEL Collector, Agent Launcher)
+2. ✓ Verifies services are running without errors
+3. ✓ Checks echo cancellation devices are available
+4. ✓ Analyzes service logs for errors
+
+**If verification fails:**
+- Services are automatically stopped
+- Audio fix script runs to restore audio
+- Error logs are displayed for debugging
+- Installation exits with clear error messages
+
+This ensures you never have a partially working system!
+
 #### Installation Prompts
 
 During installation, you'll be asked to provide:
@@ -144,15 +197,18 @@ ELEVENLABS_API_KEY=your-elevenlabs-api-key-here
 PICOVOICE_ACCESS_KEY=your-picovoice-access-key-here
 ```
 
-**Note:** Device ID, OTEL endpoint, and environment are already configured from the installation prompts. You only need to add your API keys and credentials.
+**Note:** 
+- If you used the automated installation (with .env file), all configuration is complete and services are already running!
+- If you used interactive installation, Device ID, OTEL endpoint, and environment are already set. Add your API keys and restart services as shown below.
 
-### 5. Start Services
+### 5. Restart Services (Interactive Mode Only)
+
+**If you installed with .env file:** Services are already running, skip this step!
+
+**If you installed interactively:** After adding API keys, restart services:
 
 ```bash
-# Start OpenTelemetry Collector
-sudo systemctl restart otelcol
-
-# Start the agent launcher
+# Restart the agent launcher with new configuration
 sudo systemctl restart agent-launcher
 
 # Check status
@@ -248,13 +304,21 @@ Without AEC, the microphone picks up the speaker's output, causing feedback loop
 
 **Echo cancellation is configured automatically during `install.sh`:**
 
-1. The installer lists all available audio devices
-2. You select your microphone and speaker devices
-3. PipeWire configuration is created automatically
-4. Virtual devices `echo_cancel.mic` and `echo_cancel.speaker` are created
-5. `.env` file is automatically updated with these devices
+#### Automated Mode (with .env file)
+- Automatically detects default microphone and speaker
+- Creates configuration without any prompts
+- Falls back to interactive mode if auto-detection fails
 
-**No additional setup required!**
+#### Interactive Mode (without .env file)
+1. The installer lists all available audio devices
+2. Detects system defaults and asks for confirmation
+3. If no defaults or user declines, prompts for device selection
+4. Supports both device names and numbered selection
+5. PipeWire configuration is created automatically
+6. Virtual devices `echo_cancel.mic` and `echo_cancel.speaker` are created
+7. `.env` file is automatically updated with these devices
+
+**No additional setup required in either mode!**
 
 ### Manual Reconfiguration
 
@@ -538,27 +602,38 @@ sudo systemctl start agent-launcher
 
 ### Quick Uninstall
 
-To completely remove the wrapper and all services, simply run the uninstall script:
+To completely remove the wrapper and all services:
 
+#### Interactive Mode (Default)
 ```bash
 cd ~/raspberry-pi-client-wrapper
 ./uninstall.sh
 ```
 
+#### Automated Mode (No Prompts)
+```bash
+cd ~/raspberry-pi-client-wrapper
+./uninstall.sh --auto-yes
+# or
+./uninstall.sh -y
+```
+
 The uninstall script will:
-1. Stop all services (agent-launcher, otelcol, pipewire-aec)
+1. Stop all services (agent-launcher, otelcol)
 2. Disable all services
 3. Remove service files from systemd
 4. Remove OpenTelemetry Collector (binary, configs, data)
 5. Remove cloned repository and virtual environment
 6. **Prompt** to remove wrapper directory (optional)
-7. **Prompt** to remove system packages (optional)
-8. Clean up all traces
+7. **Prompt** to remove cached downloads (optional)
+8. **Prompt** to remove system packages (optional)
+9. **Prompt** to reboot (optional)
 
-**Interactive Prompts:**
-- Remove wrapper directory? (keeps scripts if you say no)
-- Remove system packages? (Python, PipeWire, etc. - may be used by other apps)
-- Reboot now? (recommended to complete cleanup)
+**Interactive Prompts (skipped with --auto-yes):**
+- Remove entire wrapper directory? (defaults to no in auto mode)
+- Remove cached downloads? (defaults to no in auto mode, speeds up reinstalls)
+- Remove system packages? (defaults to no in auto mode, may be used by other apps)
+- Reboot now? (defaults to no in auto mode)
 
 ### What Gets Removed
 

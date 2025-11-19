@@ -4,6 +4,22 @@
 
 set -e
 
+# Parse command line arguments
+AUTO_YES=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --auto-yes|-y)
+            AUTO_YES=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--auto-yes|-y]"
+            exit 1
+            ;;
+    esac
+done
+
 # Get the actual directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -45,10 +61,14 @@ log_warning "This will remove ALL components installed by install.sh"
 echo ""
 
 # Confirm uninstallation
-read -p "Are you sure you want to uninstall? (yes/no): " CONFIRM
-if [ "$CONFIRM" != "yes" ]; then
-    log_info "Uninstallation cancelled"
-    exit 0
+if [ "$AUTO_YES" = false ]; then
+    read -p "Are you sure you want to uninstall? (yes/no): " CONFIRM
+    if [ "$CONFIRM" != "yes" ]; then
+        log_info "Uninstallation cancelled"
+        exit 0
+    fi
+else
+    log_info "Auto-yes mode: Proceeding with uninstallation..."
 fi
 
 echo ""
@@ -140,7 +160,14 @@ if [ -d "$WRAPPER_DIR/otel/.cache" ]; then
     echo ""
     CACHE_SIZE=$(du -sh "$WRAPPER_DIR/otel/.cache" 2>/dev/null | cut -f1)
     log_info "Found cached OpenTelemetry downloads ($CACHE_SIZE)"
-    read -p "Remove cached files? (Keeping them speeds up future reinstalls) (yes/no): " REMOVE_CACHE
+    
+    if [ "$AUTO_YES" = false ]; then
+        read -p "Remove cached files? (Keeping them speeds up future reinstalls) (yes/no): " REMOVE_CACHE
+    else
+        REMOVE_CACHE="no"  # Default to keeping cache in auto mode
+        log_info "Auto-yes mode: Preserving cache for future reinstalls"
+    fi
+    
     if [ "$REMOVE_CACHE" = "yes" ]; then
         rm -rf "$WRAPPER_DIR/otel/.cache"
         log_success "Removed cache directory"
@@ -155,7 +182,13 @@ fi
 
 # Step 7: Ask about removing wrapper directory
 echo ""
-read -p "Remove entire wrapper directory ($WRAPPER_DIR)? (yes/no): " REMOVE_WRAPPER
+if [ "$AUTO_YES" = false ]; then
+    read -p "Remove entire wrapper directory ($WRAPPER_DIR)? (yes/no): " REMOVE_WRAPPER
+else
+    REMOVE_WRAPPER="no"  # Default to keeping in auto mode
+    log_info "Auto-yes mode: Preserving wrapper directory"
+fi
+
 if [ "$REMOVE_WRAPPER" = "yes" ]; then
     cd "$HOME"
     rm -rf "$WRAPPER_DIR"
@@ -175,7 +208,13 @@ echo "  - pipewire, wireplumber, libspa-0.2-modules"
 echo "  - git, curl, wget"
 echo ""
 log_warning "These packages may be used by other applications."
-read -p "Remove installed packages? (yes/no): " REMOVE_PACKAGES
+
+if [ "$AUTO_YES" = false ]; then
+    read -p "Remove installed packages? (yes/no): " REMOVE_PACKAGES
+else
+    REMOVE_PACKAGES="no"  # Default to keeping in auto mode
+    log_info "Auto-yes mode: Preserving system packages"
+fi
 
 if [ "$REMOVE_PACKAGES" = "yes" ]; then
     log_info "Removing packages..."
@@ -277,7 +316,13 @@ echo "Your Raspberry Pi has been returned to a clean state!"
 echo ""
 
 # Offer to reboot
-read -p "Reboot now to complete cleanup? (yes/no): " REBOOT
+if [ "$AUTO_YES" = false ]; then
+    read -p "Reboot now to complete cleanup? (yes/no): " REBOOT
+else
+    REBOOT="no"  # Default to no reboot in auto mode
+    log_info "Auto-yes mode: Skipping automatic reboot"
+fi
+
 if [ "$REBOOT" = "yes" ]; then
     log_info "Rebooting..."
     sudo reboot

@@ -22,6 +22,9 @@ build/
 .env.local
 .env.*.local
 
+# But keep the example
+!env.example
+
 # OS files
 .DS_Store
 .DS_Store?

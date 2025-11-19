@@ -37,6 +37,20 @@ log_error() {
     echo -e "${RED}[ERROR] $1${NC}"
 }
 
+# Load .env file if it exists
+ENV_FILE="$WRAPPER_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+    log_info "Loading configuration from .env file..."
+    set -a  # Export all variables
+    source "$ENV_FILE"
+    set +a
+    USE_ENV_FILE=true
+    log_success "Configuration loaded from .env"
+else
+    USE_ENV_FILE=false
+    log_info "No .env file found - will prompt for configuration"
+fi
+
 # Print header
 echo "========================================="
 echo "  Kin AI Raspberry Pi Client Installer  "
@@ -158,59 +172,79 @@ else
     log_warning "requirements.txt not found, skipping..."
 fi
 
-# Step 6: Prompt for configuration
+# Step 6: Get configuration (from .env or prompts)
 echo ""
 echo "========================================="
 echo "  Configuration Setup"
 echo "========================================="
 echo ""
 
-log_info "Please provide the following configuration details:"
-echo ""
+if [ "$USE_ENV_FILE" = true ] && [ -n "$DEVICE_ID" ] && [ -n "$OTEL_CENTRAL_COLLECTOR_ENDPOINT" ] && [ -n "$ENV" ]; then
+    log_success "Using configuration from .env file"
+    DEVICE_ID_INPUT="$DEVICE_ID"
+    OTEL_ENDPOINT_INPUT="$OTEL_CENTRAL_COLLECTOR_ENDPOINT"
+    ENV_INPUT="$ENV"
+    echo "  Device ID: $DEVICE_ID_INPUT"
+    echo "  OTEL Endpoint: $OTEL_ENDPOINT_INPUT"
+    echo "  Environment: $ENV_INPUT"
+else
+    log_info "Please provide the following configuration details:"
+    echo ""
 
-# Prompt for Device ID
-read -p "Enter Device ID: " DEVICE_ID_INPUT
-while [ -z "$DEVICE_ID_INPUT" ]; do
-    log_error "Device ID cannot be empty"
+    # Prompt for Device ID
     read -p "Enter Device ID: " DEVICE_ID_INPUT
-done
+    while [ -z "$DEVICE_ID_INPUT" ]; do
+        log_error "Device ID cannot be empty"
+        read -p "Enter Device ID: " DEVICE_ID_INPUT
+    done
 
-# Prompt for OTEL Central Collector Endpoint
-read -p "Enter OTEL Central Collector Endpoint (e.g., https://your-collector.onrender.com:4318): " OTEL_ENDPOINT_INPUT
-while [ -z "$OTEL_ENDPOINT_INPUT" ]; do
-    log_error "OTEL endpoint cannot be empty"
-    read -p "Enter OTEL Central Collector Endpoint: " OTEL_ENDPOINT_INPUT
-done
+    # Prompt for OTEL Central Collector Endpoint
+    read -p "Enter OTEL Central Collector Endpoint (e.g., https://your-collector.onrender.com:4318): " OTEL_ENDPOINT_INPUT
+    while [ -z "$OTEL_ENDPOINT_INPUT" ]; do
+        log_error "OTEL endpoint cannot be empty"
+        read -p "Enter OTEL Central Collector Endpoint: " OTEL_ENDPOINT_INPUT
+    done
 
-# Prompt for Environment
-read -p "Enter Environment (production/staging/development) [production]: " ENV_INPUT
-ENV_INPUT=${ENV_INPUT:-production}
+    # Prompt for Environment
+    read -p "Enter Environment (production/staging/development) [production]: " ENV_INPUT
+    ENV_INPUT=${ENV_INPUT:-production}
 
-log_success "Configuration details captured"
+    log_success "Configuration details captured"
+fi
 
-# Step 7: Create .env template
-log_info "Creating .env template..."
+# Step 7: Create client .env file
+log_info "Creating client .env file..."
 
 if [ ! -f "$CLIENT_DIR/.env" ]; then
+    # Use values from wrapper .env if available, otherwise use placeholders
+    CLIENT_SUPABASE_URL=${SUPABASE_URL:-"https://your-project.supabase.co"}
+    CLIENT_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-"your-supabase-anon-key-here"}
+    CLIENT_EMAIL=${EMAIL:-"your-email@example.com"}
+    CLIENT_PASSWORD=${PASSWORD:-"your-password-here"}
+    CLIENT_ORCHESTRATOR_URL=${CONVERSATION_ORCHESTRATOR_URL:-"wss://your-backend.onrender.com/ws"}
+    CLIENT_ELEVENLABS_KEY=${ELEVENLABS_API_KEY:-"your-elevenlabs-api-key-here"}
+    CLIENT_PICOVOICE_KEY=${PICOVOICE_ACCESS_KEY:-"your-picovoice-access-key-here"}
+    CLIENT_WAKE_WORD=${WAKE_WORD:-"porcupine"}
+    
     cat > "$CLIENT_DIR/.env" <<EOF
 # Device credentials
 DEVICE_ID=$DEVICE_ID_INPUT
 
 # Supabase authentication
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-supabase-anon-key-here
-EMAIL=your-email@example.com
-PASSWORD=your-password-here
+SUPABASE_URL=$CLIENT_SUPABASE_URL
+SUPABASE_ANON_KEY=$CLIENT_SUPABASE_ANON_KEY
+EMAIL=$CLIENT_EMAIL
+PASSWORD=$CLIENT_PASSWORD
 
 # Backend
-CONVERSATION_ORCHESTRATOR_URL=ws://your-backend-url:8001/ws
+CONVERSATION_ORCHESTRATOR_URL=$CLIENT_ORCHESTRATOR_URL
 
 # ElevenLabs API
-ELEVENLABS_API_KEY=your-elevenlabs-api-key-here
+ELEVENLABS_API_KEY=$CLIENT_ELEVENLABS_KEY
 
 # Wake word detection
-PICOVOICE_ACCESS_KEY=your-picovoice-access-key-here
-WAKE_WORD=porcupine
+PICOVOICE_ACCESS_KEY=$CLIENT_PICOVOICE_KEY
+WAKE_WORD=$CLIENT_WAKE_WORD
 
 # Audio devices
 MIC_DEVICE=echo_cancel.mic
@@ -221,8 +255,13 @@ OTEL_ENABLED=true
 OTEL_EXPORTER_ENDPOINT=http://localhost:4318
 ENV=$ENV_INPUT
 EOF
-    log_success ".env template created at $CLIENT_DIR/.env with Device ID: $DEVICE_ID_INPUT"
-    log_warning "IMPORTANT: Edit $CLIENT_DIR/.env with your actual API keys and credentials!"
+    
+    if [ "$USE_ENV_FILE" = true ] && [ -n "$SUPABASE_URL" ]; then
+        log_success "Client .env created with values from wrapper .env"
+    else
+        log_success ".env template created at $CLIENT_DIR/.env"
+        log_warning "IMPORTANT: Edit $CLIENT_DIR/.env with your actual API keys and credentials!"
+    fi
 else
     log_info ".env file already exists, skipping..."
 fi
@@ -268,11 +307,47 @@ fi
 
 # Run echo cancellation setup
 echo ""
-if [ -f "$WRAPPER_DIR/pipewire/setup-echo-cancel.sh" ]; then
+# Check if echo cancellation is already configured
+if [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ] && pactl list short sources 2>/dev/null | grep -q "echo_cancel.mic"; then
+    log_info "Echo cancellation already configured"
+    log_success "Using existing echo cancellation setup"
+    
+    # Ensure .env has the echo cancel devices
+    if [ -f "$CLIENT_DIR/.env" ]; then
+        if ! grep -q "^MIC_DEVICE=echo_cancel.mic" "$CLIENT_DIR/.env"; then
+            log_info "Updating .env with echo cancellation devices..."
+            if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
+                sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
+            else
+                echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
+            fi
+            if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
+                sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
+            else
+                echo "SPEAKER_DEVICE=echo_cancel.speaker" >> "$CLIENT_DIR/.env"
+            fi
+            log_success ".env updated with echo cancellation devices"
+        fi
+    fi
+elif [ -f "$WRAPPER_DIR/pipewire/setup-echo-cancel.sh" ]; then
     log_info "Configuring echo cancellation for barge-in capability..."
     cd "$WRAPPER_DIR/pipewire"
     chmod +x setup-echo-cancel.sh
-    ./setup-echo-cancel.sh
+    
+    # Try auto-detection first, fall back to interactive if it fails
+    if [ "$USE_ENV_FILE" = true ]; then
+        # Fully automated mode - try auto-detect
+        log_info "Attempting auto-detection of default audio devices..."
+        if ./setup-echo-cancel.sh --auto 2>/dev/null; then
+            log_success "Auto-detected and configured echo cancellation"
+        else
+            log_warning "Auto-detection failed, falling back to interactive mode"
+            ./setup-echo-cancel.sh
+        fi
+    else
+        # Interactive mode - auto-detect with user confirmation
+        ./setup-echo-cancel.sh
+    fi
     
     # Check if echo cancellation was set up successfully
     if pactl list short sources | grep -q "echo_cancel.mic"; then
@@ -342,32 +417,151 @@ else
     log_warning "✗ Agent launcher service not enabled"
 fi
 
+# Step 11: Start services and verify installation
+echo ""
+log_info "Starting services and verifying installation..."
+
+# Start OTEL collector
+sudo systemctl start otelcol
+sleep 2
+
+# Start agent launcher
+sudo systemctl start agent-launcher
+sleep 5  # Give it time to start and potentially fail
+
+# Verification function
+verify_installation() {
+    local failed=false
+    local error_messages=()
+    
+    log_info "Verifying installation..."
+    
+    # Check OTEL collector
+    if ! systemctl is-active --quiet otelcol; then
+        error_messages+=("OpenTelemetry Collector failed to start")
+        failed=true
+    else
+        log_success "✓ OpenTelemetry Collector running"
+    fi
+    
+    # Check agent-launcher
+    if ! systemctl is-active --quiet agent-launcher; then
+        error_messages+=("Agent launcher failed to start")
+        failed=true
+    else
+        log_success "✓ Agent launcher running"
+    fi
+    
+    # Check for errors in agent-launcher logs
+    if sudo journalctl -u agent-launcher --since "30 seconds ago" -n 50 2>/dev/null | grep -iE "error|traceback|failed" | grep -v "paInvalidSampleRate" &>/dev/null; then
+        error_messages+=("Agent launcher has errors in logs")
+        failed=true
+    else
+        log_success "✓ Agent launcher logs clean"
+    fi
+    
+    # Check echo cancellation devices
+    if ! pactl list short sources 2>/dev/null | grep -q "echo_cancel.mic"; then
+        error_messages+=("Echo cancellation microphone device not found")
+        failed=true
+    else
+        log_success "✓ Echo cancellation microphone available"
+    fi
+    
+    if ! pactl list short sinks 2>/dev/null | grep -q "echo_cancel.speaker"; then
+        error_messages+=("Echo cancellation speaker device not found")
+        failed=true
+    else
+        log_success "✓ Echo cancellation speaker available"
+    fi
+    
+    if [ "$failed" = true ]; then
+        echo ""
+        log_error "Installation verification failed!"
+        echo ""
+        echo "Errors detected:"
+        for msg in "${error_messages[@]}"; do
+            echo "  ✗ $msg"
+        done
+        echo ""
+        
+        log_info "Showing recent agent-launcher logs:"
+        echo "========================================="
+        sudo journalctl -u agent-launcher --since "1 minute ago" -n 100 --no-pager
+        echo "========================================="
+        echo ""
+        
+        log_warning "Attempting automatic recovery..."
+        
+        # Stop services
+        sudo systemctl stop agent-launcher 2>/dev/null || true
+        sudo systemctl stop otelcol 2>/dev/null || true
+        
+        # Run fix-audio script if available
+        if [ -f "$WRAPPER_DIR/pipewire/fix-audio.sh" ]; then
+            log_info "Running audio fix script..."
+            "$WRAPPER_DIR/pipewire/fix-audio.sh" || true
+        fi
+        
+        echo ""
+        log_error "Installation failed. Please review the errors above."
+        log_info "You can try running ./install.sh again after fixing the issues."
+        echo ""
+        
+        return 1
+    fi
+    
+    log_success "Installation verified successfully!"
+    return 0
+}
+
+# Run verification
+if ! verify_installation; then
+    exit 1
+fi
+
 # Installation complete
 echo ""
 echo "========================================="
 log_success "Installation Complete!"
 echo "========================================="
 echo ""
-echo "⚠️  IMPORTANT NEXT STEPS:"
-echo ""
-echo "1. Configure the client with API keys and credentials:"
-echo "   nano $CLIENT_DIR/.env"
-echo "   Fill in:"
-echo "     - SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL, PASSWORD"
-echo "     - CONVERSATION_ORCHESTRATOR_URL"
-echo "     - ELEVENLABS_API_KEY"
-echo "     - PICOVOICE_ACCESS_KEY"
-echo ""
-echo "2. Restart services to apply configuration:"
-echo "   sudo systemctl restart otelcol"
-echo "   sudo systemctl restart agent-launcher"
-echo ""
-echo "3. Check service status:"
-echo "   sudo systemctl status agent-launcher"
-echo "   sudo systemctl status otelcol"
-echo ""
-echo "4. View logs:"
-echo "   sudo journalctl -u agent-launcher -f"
+if [ "$USE_ENV_FILE" = true ]; then
+    echo "✅ Services are now running:"
+    echo "   • OpenTelemetry Collector: Active"
+    echo "   • Agent Launcher: Active"
+    echo ""
+    echo "📝 Next Steps:"
+    echo "   1. View logs to monitor the client:"
+    echo "      sudo journalctl -u agent-launcher -f"
+    echo ""
+    echo "   2. Check service status:"
+    echo "      sudo systemctl status agent-launcher"
+    echo ""
+    echo "   3. Reconfigure if needed:"
+    echo "      Edit $WRAPPER_DIR/.env and run ./install.sh again"
+else
+    echo "⚠️  IMPORTANT NEXT STEPS:"
+    echo ""
+    echo "1. Configure the client with API keys and credentials:"
+    echo "   nano $CLIENT_DIR/.env"
+    echo "   Fill in:"
+    echo "     - SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL, PASSWORD"
+    echo "     - CONVERSATION_ORCHESTRATOR_URL"
+    echo "     - ELEVENLABS_API_KEY"
+    echo "     - PICOVOICE_ACCESS_KEY"
+    echo ""
+    echo "2. Services are already running but need configuration:"
+    echo "   After editing .env, restart services:"
+    echo "   sudo systemctl restart agent-launcher"
+    echo ""
+    echo "3. Check service status:"
+    echo "   sudo systemctl status agent-launcher"
+    echo "   sudo systemctl status otelcol"
+    echo ""
+    echo "4. View logs:"
+    echo "   sudo journalctl -u agent-launcher -f"
+fi
 echo ""
 echo "✅ Configuration Applied:"
 echo "   Device ID: $DEVICE_ID_INPUT"
