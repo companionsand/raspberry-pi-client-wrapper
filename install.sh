@@ -314,75 +314,111 @@ fi
 # Run echo cancellation setup
 echo ""
 # Check if echo cancellation is already configured
-if [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ] && pactl list short sources 2>/dev/null | grep -q "echo_cancel.mic"; then
+# Verify both the config file exists AND the devices are actually working
+NEED_RECONFIG=false
+if [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ] && \
+   pactl list short sources 2>/dev/null | grep -q "echo_cancel.mic" && \
+   pactl list short sinks 2>/dev/null | grep -q "echo_cancel.speaker"; then
     log_info "Echo cancellation already configured"
-    log_success "Using existing echo cancellation setup"
     
-    # Ensure .env has the echo cancel devices
-    if [ -f "$CLIENT_DIR/.env" ]; then
-        if ! grep -q "^MIC_DEVICE=echo_cancel.mic" "$CLIENT_DIR/.env"; then
-            log_info "Updating .env with echo cancellation devices..."
-            if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
-                sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
-            else
-                echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
-            fi
-            if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
-                sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
-            else
-                echo "SPEAKER_DEVICE=echo_cancel.speaker" >> "$CLIENT_DIR/.env"
-            fi
-            log_success ".env updated with echo cancellation devices"
-        fi
-    fi
-elif [ -f "$WRAPPER_DIR/pipewire/setup-echo-cancel.sh" ]; then
-    log_info "Configuring echo cancellation for barge-in capability..."
-    cd "$WRAPPER_DIR/pipewire"
-    chmod +x setup-echo-cancel.sh
-    
-    # Try auto-detection first, fall back to interactive if it fails
-    if [ "$USE_ENV_FILE" = true ]; then
-        # Fully automated mode - try auto-detect
-        log_info "Attempting auto-detection of default audio devices..."
-        if ./setup-echo-cancel.sh --auto 2>/dev/null; then
-            log_success "Auto-detected and configured echo cancellation"
-        else
-            log_warning "Auto-detection failed, falling back to interactive mode"
-            ./setup-echo-cancel.sh
-        fi
-    else
-        # Interactive mode - auto-detect with user confirmation
-        ./setup-echo-cancel.sh
-    fi
-    
-    # Check if echo cancellation was set up successfully
-    if pactl list short sources | grep -q "echo_cancel.mic"; then
-        log_success "Echo cancellation configured successfully"
+    # Test if devices are actually usable
+    if pactl get-source-volume echo_cancel.mic &>/dev/null && \
+       pactl get-sink-volume echo_cancel.speaker &>/dev/null; then
+        log_success "Echo cancellation devices verified and working"
         
-        # Automatically update .env with echo cancel devices
+        # Ensure .env has the echo cancel devices
         if [ -f "$CLIENT_DIR/.env" ]; then
-            log_info "Updating .env with echo cancellation devices..."
-            # Update MIC_DEVICE if it exists
-            if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
-                sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
-            else
-                echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
+            if ! grep -q "^MIC_DEVICE=echo_cancel.mic" "$CLIENT_DIR/.env"; then
+                log_info "Updating .env with echo cancellation devices..."
+                if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
+                    sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
+                else
+                    echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
+                fi
+                if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
+                    sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
+                else
+                    echo "SPEAKER_DEVICE=echo_cancel.speaker" >> "$CLIENT_DIR/.env"
+                fi
+                log_success ".env updated with echo cancellation devices"
             fi
-            # Update SPEAKER_DEVICE if it exists
-            if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
-                sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
-            else
-                echo "SPEAKER_DEVICE=echo_cancel.speaker" >> "$CLIENT_DIR/.env"
-            fi
-            log_success ".env updated with echo cancellation devices"
         fi
     else
-        log_warning "Echo cancellation setup incomplete"
-        log_info "You may need to configure it manually later"
+        log_warning "Echo cancellation devices exist but are not functional"
+        log_info "Will reconfigure echo cancellation..."
+        
+        # Remove existing config to trigger reconfiguration
+        rm -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf"
+        systemctl --user restart pipewire pipewire-pulse wireplumber
+        sleep 3
+        
+        NEED_RECONFIG=true
     fi
 else
-    log_error "Echo cancellation setup script not found at $WRAPPER_DIR/pipewire/setup-echo-cancel.sh"
-    exit 1
+    log_info "Echo cancellation not configured or incomplete"
+    NEED_RECONFIG=true
+fi
+
+# Configure echo cancellation if needed
+if [ "$NEED_RECONFIG" = true ]; then
+    if [ -f "$WRAPPER_DIR/pipewire/setup-echo-cancel.sh" ]; then
+        log_info "Configuring echo cancellation for barge-in capability..."
+        cd "$WRAPPER_DIR/pipewire"
+        chmod +x setup-echo-cancel.sh
+        
+        # Try auto-detection first, fall back to interactive if it fails
+        if [ "$USE_ENV_FILE" = true ]; then
+            # Fully automated mode - try auto-detect
+            log_info "Attempting auto-detection of default audio devices..."
+            if ./setup-echo-cancel.sh --auto 2>/dev/null; then
+                log_success "Auto-detected and configured echo cancellation"
+            else
+                log_warning "Auto-detection failed, falling back to interactive mode"
+                ./setup-echo-cancel.sh
+            fi
+        else
+            # Interactive mode - auto-detect with user confirmation
+            ./setup-echo-cancel.sh
+        fi
+        
+        # Check if echo cancellation was set up successfully
+        if pactl list short sources | grep -q "echo_cancel.mic" && \
+           pactl list short sinks | grep -q "echo_cancel.speaker"; then
+            
+            # Test if devices are actually usable
+            if pactl get-source-volume echo_cancel.mic &>/dev/null && \
+               pactl get-sink-volume echo_cancel.speaker &>/dev/null; then
+                log_success "Echo cancellation configured and verified"
+                
+                # Automatically update .env with echo cancel devices
+                if [ -f "$CLIENT_DIR/.env" ]; then
+                    log_info "Updating .env with echo cancellation devices..."
+                    # Update MIC_DEVICE if it exists
+                    if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
+                        sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
+                    else
+                        echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
+                    fi
+                    # Update SPEAKER_DEVICE if it exists
+                    if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
+                        sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
+                    else
+                        echo "SPEAKER_DEVICE=echo_cancel.speaker" >> "$CLIENT_DIR/.env"
+                    fi
+                    log_success ".env updated with echo cancellation devices"
+                fi
+            else
+                log_warning "Echo cancellation devices exist but are not functional"
+                log_info "You may need to configure it manually later"
+            fi
+        else
+            log_warning "Echo cancellation setup incomplete"
+            log_info "You may need to configure it manually later"
+        fi
+    else
+        log_error "Echo cancellation setup script not found at $WRAPPER_DIR/pipewire/setup-echo-cancel.sh"
+        exit 1
+    fi
 fi
 
 # Step 10: Setup agent-launcher systemd service
@@ -511,21 +547,9 @@ verify_installation() {
         echo "========================================="
         echo ""
         
-        log_warning "Attempting automatic recovery..."
-        
-        # Stop services
-        sudo systemctl stop agent-launcher 2>/dev/null || true
-        sudo systemctl stop otelcol 2>/dev/null || true
-        
-        # Run fix-audio script if available
-        if [ -f "$WRAPPER_DIR/pipewire/fix-audio.sh" ]; then
-            log_info "Running audio fix script..."
-            "$WRAPPER_DIR/pipewire/fix-audio.sh" || true
-        fi
-        
-        echo ""
         log_error "Installation failed. Please review the errors above."
         log_info "You can try running ./install.sh again after fixing the issues."
+        log_info "Or run ./uninstall.sh to clean up and start fresh."
         echo ""
         
         return 1
