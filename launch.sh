@@ -93,6 +93,9 @@ fi
 source "$VENV_DIR/bin/activate"
 log_success "Virtual environment activated"
 
+# Ensure Python logs are flushed immediately so journald sees them
+export PYTHONUNBUFFERED=1
+
 # Step 4: Install/update requirements
 log_info "Installing Python requirements..."
 cd "$CLIENT_DIR"
@@ -122,4 +125,3 @@ log_info "========================================="
 
 # Run main.py (this will block until the process exits)
 exec python main.py
-
