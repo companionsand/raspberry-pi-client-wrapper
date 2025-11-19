@@ -547,6 +547,12 @@ verify_installation() {
         echo "========================================="
         echo ""
         
+        # Stop the agent-launcher service since it failed
+        log_info "Stopping agent-launcher service..."
+        sudo systemctl stop agent-launcher 2>/dev/null || true
+        log_success "Agent launcher stopped"
+        echo ""
+        
         log_error "Installation failed. Please review the errors above."
         log_info "You can try running ./install.sh again after fixing the issues."
         log_info "Or run ./uninstall.sh to clean up and start fresh."
