@@ -12,7 +12,6 @@ WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
 GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"
-GIT_BRANCH="main"
 
 # Colors for output
 RED='\033[0;31m'
@@ -50,6 +49,9 @@ else
     USE_ENV_FILE=false
     log_info "No .env file found - will prompt for configuration"
 fi
+
+# Set Git branch (from .env or default to main)
+GIT_BRANCH=${GIT_BRANCH:-"main"}
 
 # Print header
 echo "========================================="
@@ -225,6 +227,7 @@ if [ ! -f "$CLIENT_DIR/.env" ]; then
     CLIENT_ELEVENLABS_KEY=${ELEVENLABS_API_KEY:-"your-elevenlabs-api-key-here"}
     CLIENT_PICOVOICE_KEY=${PICOVOICE_ACCESS_KEY:-"your-picovoice-access-key-here"}
     CLIENT_WAKE_WORD=${WAKE_WORD:-"porcupine"}
+    CLIENT_SAMPLE_RATE=${SAMPLE_RATE:-"16000"}
     
     cat > "$CLIENT_DIR/.env" <<EOF
 # Device credentials
@@ -249,6 +252,9 @@ WAKE_WORD=$CLIENT_WAKE_WORD
 # Audio devices
 MIC_DEVICE=echo_cancel.mic
 SPEAKER_DEVICE=echo_cancel.speaker
+
+# Audio configuration
+SAMPLE_RATE=$CLIENT_SAMPLE_RATE
 
 # OpenTelemetry
 OTEL_ENABLED=true
@@ -427,7 +433,10 @@ sleep 2
 
 # Start agent launcher
 sudo systemctl start agent-launcher
-sleep 5  # Give it time to start and potentially fail
+
+# Give services adequate time to initialize and potentially fail
+log_info "Waiting 30 seconds for services to stabilize..."
+sleep 30
 
 # Verification function
 verify_installation() {
@@ -444,12 +453,23 @@ verify_installation() {
         log_success "✓ OpenTelemetry Collector running"
     fi
     
-    # Check agent-launcher
-    if ! systemctl is-active --quiet agent-launcher; then
-        error_messages+=("Agent launcher failed to start")
+    # Check agent-launcher - more thorough check
+    LAUNCHER_STATE=$(systemctl is-active agent-launcher 2>/dev/null || echo "inactive")
+    LAUNCHER_FAILED=$(systemctl is-failed agent-launcher 2>/dev/null && echo "yes" || echo "no")
+    
+    if [ "$LAUNCHER_STATE" != "active" ] || [ "$LAUNCHER_FAILED" = "yes" ]; then
+        error_messages+=("Agent launcher failed to start or exited with error")
         failed=true
     else
-        log_success "✓ Agent launcher running"
+        # Double-check it's actually running and not about to fail
+        sleep 5
+        LAUNCHER_STATE_RECHECK=$(systemctl is-active agent-launcher 2>/dev/null || echo "inactive")
+        if [ "$LAUNCHER_STATE_RECHECK" != "active" ]; then
+            error_messages+=("Agent launcher was active but then failed")
+            failed=true
+        else
+            log_success "✓ Agent launcher running"
+        fi
     fi
     
     # Check for errors in agent-launcher logs

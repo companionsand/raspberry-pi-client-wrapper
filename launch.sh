@@ -12,7 +12,6 @@ WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
 GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"
-GIT_BRANCH="main"
 
 # Logging
 LOG_PREFIX="[agent-launcher]"
@@ -27,6 +26,16 @@ log_error() {
 log_success() {
     echo "$LOG_PREFIX [SUCCESS] $1"
 }
+
+# Load wrapper .env file if it exists (for GIT_BRANCH configuration)
+if [ -f "$WRAPPER_DIR/.env" ]; then
+    set -a  # Export all variables
+    source "$WRAPPER_DIR/.env"
+    set +a
+fi
+
+# Set Git branch (from .env or default to main)
+GIT_BRANCH=${GIT_BRANCH:-"main"}
 
 # Change to wrapper directory
 cd "$WRAPPER_DIR"
@@ -101,7 +110,7 @@ fi
 if [ ! -f ".env" ]; then
     log_error ".env file not found in $CLIENT_DIR"
     log_error "Please create a .env file with required configuration"
-    log_error "See .env.example or README.md for details"
+    log_error "See ../.env.example or README.md for details"
     exit 1
 fi
 

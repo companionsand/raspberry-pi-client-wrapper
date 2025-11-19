@@ -36,6 +36,7 @@ raspberry-pi-client-wrapper/
 ## Prerequisites
 
 ### Hardware
+
 - Raspberry Pi 5 (recommended) or Pi 4
 - USB microphone
 - USB speaker or 3.5mm audio output
@@ -43,6 +44,7 @@ raspberry-pi-client-wrapper/
 - Stable internet connection
 
 ### Software
+
 - Raspberry Pi OS Lite (64-bit) or Desktop
 - Fresh system or clean install recommended
 
@@ -53,18 +55,23 @@ raspberry-pi-client-wrapper/
 For a fully automated installation without any prompts:
 
 1. **Create `.env` file** from the template:
-   ```bash
-   cp env.example .env
-   nano .env
-   ```
+
+```bash
+cp .env.example .env
+nano .env
+```
 
 2. **Fill in all values** in `.env`:
+
    ```bash
    # Required values
    DEVICE_ID=your-device-id
    ENV=production
    OTEL_CENTRAL_COLLECTOR_ENDPOINT=https://your-collector.onrender.com:4318
-   
+
+   # Git configuration (optional)
+   GIT_BRANCH=main  # Branch to use for raspberry-pi-client repo
+
    # Client configuration (all required for no-prompt install)
    SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_ANON_KEY=your-key
@@ -73,6 +80,9 @@ For a fully automated installation without any prompts:
    CONVERSATION_ORCHESTRATOR_URL=wss://your-backend.onrender.com/ws
    ELEVENLABS_API_KEY=your-key
    PICOVOICE_ACCESS_KEY=your-key
+
+   # Audio configuration
+   SAMPLE_RATE=16000  # Common values: 16000 or 48000
    ```
 
 3. **Run installation** - completely automated:
@@ -132,6 +142,7 @@ chmod +x install.sh
 ```
 
 The installer will:
+
 1. ✓ Check system compatibility
 2. ✓ **Verify GitHub SSH access** (exits with instructions if not configured)
 3. ✓ Install system dependencies (Python, PipeWire, audio libraries)
@@ -149,12 +160,14 @@ The installer will:
 #### Automatic Verification and Rollback
 
 After installation completes, `install.sh` automatically:
+
 1. ✓ Starts all services (OTEL Collector, Agent Launcher)
 2. ✓ Verifies services are running without errors
 3. ✓ Checks echo cancellation devices are available
 4. ✓ Analyzes service logs for errors
 
 **If verification fails:**
+
 - Services are automatically stopped
 - Audio fix script runs to restore audio
 - Error logs are displayed for debugging
@@ -165,6 +178,7 @@ This ensures you never have a partially working system!
 #### Installation Prompts
 
 During installation, you'll be asked to provide:
+
 - **Device ID**: Your unique device identifier
 - **OTEL Central Collector Endpoint**: Your central telemetry collector URL (e.g., `https://your-collector.onrender.com:4318`)
 - **Environment**: Deployment environment (production/staging/development)
@@ -182,6 +196,7 @@ nano ~/raspberry-pi-client-wrapper/raspberry-pi-client/.env
 ```
 
 Fill in the required API keys and credentials:
+
 ```bash
 # Already configured by installer:
 DEVICE_ID=your-device-id        # ✓ Already set
@@ -197,7 +212,8 @@ ELEVENLABS_API_KEY=your-elevenlabs-api-key-here
 PICOVOICE_ACCESS_KEY=your-picovoice-access-key-here
 ```
 
-**Note:** 
+**Note:**
+
 - If you used the automated installation (with .env file), all configuration is complete and services are already running!
 - If you used interactive installation, Device ID, OTEL endpoint, and environment are already set. Add your API keys and restart services as shown below.
 
@@ -241,6 +257,7 @@ sudo journalctl -u agent-launcher -u otelcol -f
 - Restarts are logged in systemd journal
 
 This ensures your device stays online even after:
+
 - Python exceptions
 - Network failures
 - Temporary service disruptions
@@ -283,16 +300,17 @@ The `launch.sh` script runs on every boot:
 
 ### Services Overview
 
-| Service | Type | Purpose | Auto-Start | Auto-Restart |
-|---------|------|---------|------------|--------------|
-| `otelcol.service` | System | OpenTelemetry Collector | ✓ Yes | ✓ Yes |
-| `agent-launcher.service` | System | Client Launcher & Updater | ✓ Yes | ✓ Yes (unlimited) |
+| Service                  | Type   | Purpose                   | Auto-Start | Auto-Restart      |
+| ------------------------ | ------ | ------------------------- | ---------- | ----------------- |
+| `otelcol.service`        | System | OpenTelemetry Collector   | ✓ Yes      | ✓ Yes             |
+| `agent-launcher.service` | System | Client Launcher & Updater | ✓ Yes      | ✓ Yes (unlimited) |
 
 ## Echo Cancellation (Automatic During Install)
 
 ### What is Echo Cancellation?
 
 Echo cancellation (AEC) allows the device to:
+
 - Play audio (AI speaking) through speakers
 - Record audio (user speaking) through microphone
 - Filter out the AI's voice from the microphone input
@@ -305,11 +323,13 @@ Without AEC, the microphone picks up the speaker's output, causing feedback loop
 **Echo cancellation is configured automatically during `install.sh`:**
 
 #### Automated Mode (with .env file)
+
 - Automatically detects default microphone and speaker
 - Creates configuration without any prompts
 - Falls back to interactive mode if auto-detection fails
 
 #### Interactive Mode (without .env file)
+
 1. The installer lists all available audio devices
 2. Detects system defaults and asks for confirmation
 3. If no defaults or user declines, prompts for device selection
@@ -330,6 +350,7 @@ cd ~/raspberry-pi-client-wrapper/pipewire
 ```
 
 This will:
+
 - Re-list your audio devices
 - Let you select different devices
 - Update the configuration
@@ -340,6 +361,7 @@ This will:
 The script creates: `~/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf`
 
 This configuration:
+
 - Uses WebRTC AEC algorithm (high quality)
 - Creates virtual devices: `echo_cancel.mic` and `echo_cancel.speaker`
 - Routes audio through echo cancellation filter
@@ -379,6 +401,7 @@ systemctl --user restart pipewire pipewire-pulse
 **Problem**: Device names changed after reboot
 
 USB device names can change. If this happens:
+
 ```bash
 # List current devices
 pactl list short sources
@@ -441,6 +464,7 @@ sudo systemctl start agent-launcher
 **Problem**: Installation fails with "GitHub SSH authentication failed!"
 
 **Solution:**
+
 ```bash
 # 1. Generate SSH key if you haven't already
 ssh-keygen -t ed25519 -C "your_email@example.com"
@@ -462,6 +486,7 @@ cd ~/raspberry-pi-client-wrapper
 ```
 
 **Common SSH issues:**
+
 - Permission denied: SSH key not added to GitHub
 - Host key verification failed: Run `ssh -T git@github.com` and accept the host key
 - No route to host: Check internet connection
@@ -469,11 +494,13 @@ cd ~/raspberry-pi-client-wrapper
 ### Agent Won't Start
 
 **Check logs:**
+
 ```bash
 sudo journalctl -u agent-launcher -n 50
 ```
 
 **View restart history:**
+
 ```bash
 # See how many times the service has restarted
 sudo systemctl status agent-launcher
@@ -483,6 +510,7 @@ sudo journalctl -u agent-launcher -f
 ```
 
 **Common issues:**
+
 - `.env` file not configured
 - No internet connection
 - Python dependencies failed to install
@@ -491,6 +519,7 @@ sudo journalctl -u agent-launcher -f
 
 **If the service is crash-looping:**
 The service will keep restarting automatically. Check logs to identify the root cause:
+
 ```bash
 # Get last 100 lines to see error pattern
 sudo journalctl -u agent-launcher -n 100
@@ -499,23 +528,68 @@ sudo journalctl -u agent-launcher -n 100
 sudo journalctl -u agent-launcher | grep -i error
 ```
 
+### Invalid Sample Rate Error
+
+**Problem**: Client crashes with `PortAudioError: Invalid sample rate [PaErrorCode -9997]`
+
+**Cause**: The audio hardware doesn't support the configured sample rate.
+
+**Solution 1** - Change sample rate in wrapper .env:
+
+```bash
+# Edit wrapper .env file
+nano ~/raspberry-pi-client-wrapper/.env
+
+# Try different sample rates (common values):
+SAMPLE_RATE=16000   # 16kHz (most compatible)
+SAMPLE_RATE=48000   # 48kHz (higher quality)
+SAMPLE_RATE=44100   # 44.1kHz (CD quality)
+
+# After changing, reinstall to update client .env
+./install.sh
+```
+
+**Solution 2** - Manually edit client .env:
+
+```bash
+nano ~/raspberry-pi-client-wrapper/raspberry-pi-client/.env
+
+# Change SAMPLE_RATE value
+SAMPLE_RATE=16000
+
+# Restart service
+sudo systemctl restart agent-launcher
+```
+
+**Note**: The raspberry-pi-client code must use the `SAMPLE_RATE` environment variable for this to work. Update your client code to read this value:
+
+```python
+import os
+SAMPLE_RATE = int(os.getenv('SAMPLE_RATE', '16000'))
+```
+
+Then use `SAMPLE_RATE` in your PortAudio/sounddevice configuration instead of a hardcoded value.
+
 ### Audio Issues (No Microphone/Speaker Detected)
 
 **Problem**: Audio devices not detected after installation
 
 **Quick Fix**: Run the audio fix script:
+
 ```bash
 cd ~/raspberry-pi-client-wrapper/pipewire
 ./fix-audio.sh
 ```
 
 This script will:
+
 - Remove problematic service configurations
 - Reset failed PipeWire services
 - Restart audio services properly
 - List available audio devices
 
 **Manual fix:**
+
 ```bash
 # Reset failed services
 systemctl --user reset-failed
@@ -530,6 +604,7 @@ pactl list short sinks    # speakers
 ```
 
 **Test audio:**
+
 ```bash
 # Test speaker
 speaker-test -c2 -t wav
@@ -541,17 +616,20 @@ arecord -d 5 test.wav && aplay test.wav
 ### OpenTelemetry Collector Issues
 
 **Check status:**
+
 ```bash
 sudo systemctl status otelcol
 sudo journalctl -u otelcol -n 50
 ```
 
 **Validate config:**
+
 ```bash
 sudo /usr/local/bin/otelcol --config=/etc/otelcol/config.yaml validate
 ```
 
 **Check connectivity:**
+
 ```bash
 curl -X POST https://your-collector.onrender.com:4318/v1/traces
 ```
@@ -559,6 +637,7 @@ curl -X POST https://your-collector.onrender.com:4318/v1/traces
 ### Code Not Updating
 
 **Force update:**
+
 ```bash
 cd ~/raspberry-pi-client-wrapper/raspberry-pi-client
 git fetch origin main
@@ -569,12 +648,14 @@ sudo systemctl restart agent-launcher
 ### Service Won't Start on Boot
 
 **Check service status:**
+
 ```bash
 sudo systemctl is-enabled agent-launcher
 sudo systemctl is-enabled otelcol
 ```
 
 **Re-enable:**
+
 ```bash
 sudo systemctl enable agent-launcher
 sudo systemctl enable otelcol
@@ -605,12 +686,14 @@ sudo systemctl start agent-launcher
 To completely remove the wrapper and all services:
 
 #### Interactive Mode (Default)
+
 ```bash
 cd ~/raspberry-pi-client-wrapper
 ./uninstall.sh
 ```
 
 #### Automated Mode (No Prompts)
+
 ```bash
 cd ~/raspberry-pi-client-wrapper
 ./uninstall.sh --auto-yes
@@ -619,6 +702,7 @@ cd ~/raspberry-pi-client-wrapper
 ```
 
 The uninstall script will:
+
 1. Stop all services (agent-launcher, otelcol)
 2. Disable all services
 3. Remove service files from systemd
@@ -630,6 +714,7 @@ The uninstall script will:
 9. **Prompt** to reboot (optional)
 
 **Interactive Prompts (skipped with --auto-yes):**
+
 - Remove entire wrapper directory? (defaults to no in auto mode)
 - Remove cached downloads? (defaults to no in auto mode, speeds up reinstalls)
 - Remove system packages? (defaults to no in auto mode, may be used by other apps)
@@ -638,16 +723,19 @@ The uninstall script will:
 ### What Gets Removed
 
 **Always removed:**
+
 - ✓ All systemd services
 - ✓ OpenTelemetry Collector
 - ✓ Cloned raspberry-pi-client repository
 - ✓ Python virtual environment
 
 **Optional (prompted):**
+
 - Wrapper directory with scripts
 - System packages (pip, pipewire, etc.)
 
 **Preserved:**
+
 - System journal logs (can be manually cleared)
 - PipeWire user configurations (may be used by other apps)
 
@@ -689,12 +777,14 @@ sudo reboot
 ## Configuration Reference
 
 ### Git Repository
+
 - **URL**: `git@github.com:companionsand/raspberry-pi-client.git` (SSH)
-- **Branch**: `main`
+- **Branch**: Configurable via `GIT_BRANCH` in `.env` (default: `main`)
 - **Clone Location**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/`
 - **Authentication**: Requires SSH key added to GitHub account
 
 ### Paths
+
 - **Wrapper**: `~/raspberry-pi-client-wrapper/`
 - **Client**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/`
 - **Venv**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/venv/`
@@ -704,6 +794,7 @@ sudo reboot
 - **OTEL Env**: `/etc/otelcol/otelcol.env`
 
 ### Service Files
+
 - **Agent Launcher**: `/etc/systemd/system/agent-launcher.service`
 - **OTEL Collector**: `/etc/systemd/system/otelcol.service`
 
@@ -716,15 +807,18 @@ The installer caches downloaded files to speed up reinstallations:
 **Location**: `~/raspberry-pi-client-wrapper/otel/.cache/`
 
 **What's cached:**
+
 - OpenTelemetry Collector tarball (~40MB)
 
 **Benefits:**
+
 - ✅ First installation: Downloads from internet
 - ✅ Subsequent installations: Uses cached file (10x faster)
 - ✅ Works offline after first download
 - ✅ Preserves bandwidth
 
 **Cache management:**
+
 ```bash
 # Check cache size
 du -sh ~/raspberry-pi-client-wrapper/otel/.cache
@@ -744,6 +838,7 @@ rm -rf ~/raspberry-pi-client-wrapper/otel/.cache
 ## Support
 
 If you encounter issues:
+
 1. Check service logs with `journalctl`
 2. Verify configuration files are correct
 3. Ensure internet connectivity
@@ -752,4 +847,3 @@ If you encounter issues:
 ## License
 
 Copyright © 2025 Kin Voice AI. All rights reserved.
-
