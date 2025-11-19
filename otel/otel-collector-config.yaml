@@ -37,8 +37,8 @@ processors:
         action: insert
 
 exporters:
-  # Forward to central collector
-  otlp/central:
+  # Forward to central collector over OTLP/HTTP (Render exposes HTTPS on 443)
+  otlphttp/central:
     endpoint: ${OTEL_CENTRAL_COLLECTOR_ENDPOINT}
     compression: gzip
     retry_on_failure:
@@ -52,9 +52,6 @@ exporters:
       queue_size: 10000  # Large queue for network failures
       storage: file_storage  # Persist to disk
 
-  # Debug exporter for local troubleshooting
-  # logging:
-  #   loglevel: debug
 
 extensions:
   # Health check extension
@@ -80,21 +77,20 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlp/central]
+      exporters: [otlphttp/central]
     
     # Metrics pipeline
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlp/central]
+      exporters: [otlphttp/central]
     
     # Logs pipeline
     logs:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlp/central]
+      exporters: [otlphttp/central]
 
   telemetry:
     logs:
       level: info
-

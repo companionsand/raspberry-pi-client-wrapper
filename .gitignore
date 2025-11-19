@@ -45,3 +45,5 @@ Thumbs.db
 *.log
 logs/
 
+# Test scripts
+test*.py

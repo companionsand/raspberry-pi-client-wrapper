@@ -294,6 +294,12 @@ ENV=$ENV_INPUT
 DEVICE_ID=$DEVICE_ID_INPUT
 EOF
     log_success "OpenTelemetry Collector configured with endpoint: $OTEL_ENDPOINT_INPUT"
+
+    # Restart collector so the new environment file is loaded immediately
+    log_info "Restarting OpenTelemetry Collector to apply configuration..."
+    sudo systemctl daemon-reload
+    sudo systemctl restart otelcol
+    log_success "OpenTelemetry Collector restarted with new configuration"
 else
     log_error "OpenTelemetry installer not found at $WRAPPER_DIR/otel/install-collector.sh"
     exit 1
@@ -662,6 +668,4 @@ echo "     - Wait for internet connection"
 echo "     - Update code from git"
 echo "     - Install dependencies"
 echo "     - Launch the client"
-echo ""
-log_warning "Don't forget to configure API keys in $CLIENT_DIR/.env!"
 echo ""

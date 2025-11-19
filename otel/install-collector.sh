@@ -94,8 +94,6 @@ ENV=production
 DEVICE_ID=your-device-id
 EOF
 
-echo "⚠️  IMPORTANT: Edit /etc/otelcol/otelcol.env with your actual values!"
-
 # Create systemd service
 echo "🔧 Creating systemd service..."
 sudo tee /etc/systemd/system/otelcol.service > /dev/null <<'EOF'
