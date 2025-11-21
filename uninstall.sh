@@ -201,11 +201,20 @@ fi
 
 # Step 8: Ask about removing system packages
 echo ""
-log_warning "The following system packages were installed:"
+log_warning "The following system packages may have been installed:"
 echo "  - python3-pip, python3-venv, python3-pyaudio"
 echo "  - portaudio19-dev, alsa-utils"
-echo "  - pipewire, wireplumber, libspa-0.2-modules"
 echo "  - git, curl, wget"
+
+# Check if PipeWire was installed (look for config or running service)
+PIPEWIRE_INSTALLED=false
+if systemctl --user is-active --quiet pipewire 2>/dev/null || \
+   [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ] || \
+   dpkg -l | grep -q "^ii  pipewire"; then
+    PIPEWIRE_INSTALLED=true
+    echo "  - pipewire, wireplumber, libspa-0.2-modules (echo cancellation was configured)"
+fi
+
 echo ""
 log_warning "These packages may be used by other applications."
 
@@ -217,17 +226,26 @@ else
 fi
 
 if [ "$REMOVE_PACKAGES" = "yes" ]; then
-    log_info "Removing packages..."
+    log_info "Removing core packages..."
     sudo apt remove -y \
         python3-pip \
         python3-venv \
         portaudio19-dev \
         python3-pyaudio \
         alsa-utils \
-        pipewire \
-        wireplumber \
-        libspa-0.2-modules \
         2>/dev/null || log_warning "Some packages could not be removed (may not have been installed)"
+    
+    # Remove PipeWire packages only if they were installed
+    if [ "$PIPEWIRE_INSTALLED" = true ]; then
+        log_info "Removing PipeWire packages..."
+        sudo apt remove -y \
+            pipewire \
+            wireplumber \
+            libspa-0.2-modules \
+            2>/dev/null || log_warning "Some PipeWire packages could not be removed"
+    else
+        log_info "PipeWire was not installed (ALSA-only mode), skipping..."
+    fi
     
     log_info "Cleaning up unused dependencies..."
     sudo apt autoremove -y
@@ -236,35 +254,40 @@ else
     log_info "System packages preserved"
 fi
 
-# Step 9: Clean up PipeWire echo cancellation configurations
-log_info "Cleaning up PipeWire echo cancellation configurations..."
-
-# Remove echo cancellation config file
-if [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ]; then
-    rm -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf"
-    log_success "Removed echo cancellation config file"
+# Step 9: Clean up PipeWire echo cancellation configurations (if they exist)
+if [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ] || \
+   systemctl --user is-active --quiet pipewire 2>/dev/null; then
+    log_info "Cleaning up PipeWire echo cancellation configurations..."
     
-    # Restart PipeWire services to remove echo_cancel sources and sinks
-    log_info "Restarting PipeWire services to clean up echo cancellation devices..."
-    systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || {
-        log_warning "Failed to restart PipeWire services (may not be running)"
-    }
-    sleep 3
-    
-    # Verify echo_cancel devices are gone
-    if pactl list short sources 2>/dev/null | grep -q "echo_cancel"; then
-        log_warning "Echo cancellation sources still present after restart"
+    # Remove echo cancellation config file
+    if [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ]; then
+        rm -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf"
+        log_success "Removed echo cancellation config file"
+        
+        # Restart PipeWire services to remove echo_cancel sources and sinks
+        log_info "Restarting PipeWire services to clean up echo cancellation devices..."
+        systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || {
+            log_warning "Failed to restart PipeWire services (may not be running)"
+        }
+        sleep 3
+        
+        # Verify echo_cancel devices are gone
+        if pactl list short sources 2>/dev/null | grep -q "echo_cancel"; then
+            log_warning "Echo cancellation sources still present after restart"
+        else
+            log_success "Echo cancellation sources removed"
+        fi
+        
+        if pactl list short sinks 2>/dev/null | grep -q "echo_cancel"; then
+            log_warning "Echo cancellation sinks still present after restart"
+        else
+            log_success "Echo cancellation sinks removed"
+        fi
     else
-        log_success "Echo cancellation sources removed"
-    fi
-    
-    if pactl list short sinks 2>/dev/null | grep -q "echo_cancel"; then
-        log_warning "Echo cancellation sinks still present after restart"
-    else
-        log_success "Echo cancellation sinks removed"
+        log_info "Echo cancellation config not found"
     fi
 else
-    log_info "Echo cancellation config not found (already removed or never configured)"
+    log_info "PipeWire not configured (ALSA-only mode was used) - skipping echo cancellation cleanup"
 fi
 
 # Final summary
@@ -292,10 +315,14 @@ echo ""
 echo "✓ Repository removed:"
 echo "  - $CLIENT_DIR"
 echo ""
-echo "✓ PipeWire echo cancellation removed:"
-echo "  - Echo cancel configuration"
-echo "  - Echo cancel audio sources and sinks"
-echo ""
+
+# Only show PipeWire cleanup if it was actually used
+if [ "$PIPEWIRE_INSTALLED" = true ] || [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf.bak" ]; then
+    echo "✓ PipeWire echo cancellation removed:"
+    echo "  - Echo cancel configuration"
+    echo "  - Echo cancel audio sources and sinks"
+    echo ""
+fi
 
 if [ "$CACHE_REMOVED" = true ]; then
     echo "✓ Cache directory removed:"
