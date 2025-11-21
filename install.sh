@@ -615,19 +615,23 @@ verify_installation() {
         log_success "✓ Agent launcher logs clean"
     fi
     
-    # Check echo cancellation devices
-    if ! pactl list short sources 2>/dev/null | grep -q "echo_cancel.mic"; then
-        error_messages+=("Echo cancellation microphone device not found")
-        failed=true
+    # Check echo cancellation devices (only if not skipped)
+    if [ "$SKIP_ECHO_CANCEL" != "true" ]; then
+        if ! pactl list short sources 2>/dev/null | grep -q "echo_cancel.mic"; then
+            error_messages+=("Echo cancellation microphone device not found")
+            failed=true
+        else
+            log_success "✓ Echo cancellation microphone available"
+        fi
+        
+        if ! pactl list short sinks 2>/dev/null | grep -q "echo_cancel.speaker"; then
+            error_messages+=("Echo cancellation speaker device not found")
+            failed=true
+        else
+            log_success "✓ Echo cancellation speaker available"
+        fi
     else
-        log_success "✓ Echo cancellation microphone available"
-    fi
-    
-    if ! pactl list short sinks 2>/dev/null | grep -q "echo_cancel.speaker"; then
-        error_messages+=("Echo cancellation speaker device not found")
-        failed=true
-    else
-        log_success "✓ Echo cancellation speaker available"
+        log_success "✓ ALSA-only mode - skipping echo cancellation device check"
     fi
     
     if [ "$failed" = true ]; then
