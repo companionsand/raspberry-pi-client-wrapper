@@ -11,7 +11,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
-GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"
+GIT_REPO_URL="https://github.com/companionsand/raspberry-pi-client.git"
 
 # Colors for output
 RED='\033[0;31m'
@@ -90,49 +90,39 @@ log_success "Package list updated"
 log_info "Installing system dependencies..."
 log_info "This may take several minutes..."
 
-sudo apt install -y \
-    python3-pip \
-    python3-venv \
-    portaudio19-dev \
-    python3-pyaudio \
-    alsa-utils \
-    pipewire \
-    wireplumber \
-    libspa-0.2-modules \
-    git \
-    curl \
-    wget
+# Check if we should skip PipeWire/echo cancellation setup
+SKIP_ECHO_CANCEL=${SKIP_ECHO_CANCEL_SETUP:-false}
 
-log_success "System dependencies installed"
-
-# Step 2: Verify GitHub SSH access
-log_info "Verifying GitHub SSH access..."
-if ! ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-    log_error "GitHub SSH authentication failed!"
-    echo ""
-    echo "The repository is private and requires SSH key authentication."
-    echo ""
-    echo "Please set up SSH keys on this Raspberry Pi:"
-    echo ""
-    echo "1. Generate SSH key (if not already done):"
-    echo "   ssh-keygen -t ed25519 -C \"your_email@example.com\""
-    echo ""
-    echo "2. Display your public key:"
-    echo "   cat ~/.ssh/id_ed25519.pub"
-    echo ""
-    echo "3. Add the key to your GitHub account:"
-    echo "   https://github.com/settings/ssh/new"
-    echo ""
-    echo "4. Test the connection:"
-    echo "   ssh -T git@github.com"
-    echo ""
-    echo "5. Re-run this installer"
-    echo ""
-    exit 1
+if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
+    log_info "SKIP_ECHO_CANCEL_SETUP=true - Installing ALSA-only dependencies..."
+    sudo apt install -y \
+        python3-pip \
+        python3-venv \
+        portaudio19-dev \
+        python3-pyaudio \
+        alsa-utils \
+        git \
+        curl \
+        wget
+    log_success "ALSA-only dependencies installed (PipeWire skipped)"
+else
+    log_info "Installing dependencies including PipeWire for echo cancellation..."
+    sudo apt install -y \
+        python3-pip \
+        python3-venv \
+        portaudio19-dev \
+        python3-pyaudio \
+        alsa-utils \
+        pipewire \
+        wireplumber \
+        libspa-0.2-modules \
+        git \
+        curl \
+        wget
+    log_success "System dependencies installed (including PipeWire)"
 fi
-log_success "GitHub SSH access verified"
 
-# Step 3: Clone repository
+# Step 2: Clone repository
 log_info "Setting up repository..."
 
 if [ ! -d "$CLIENT_DIR" ]; then
@@ -227,9 +217,12 @@ if [ ! -f "$CLIENT_DIR/.env" ]; then
     CLIENT_ELEVENLABS_KEY=${ELEVENLABS_API_KEY:-"your-elevenlabs-api-key-here"}
     CLIENT_PICOVOICE_KEY=${PICOVOICE_ACCESS_KEY:-"your-picovoice-access-key-here"}
     CLIENT_WAKE_WORD=${WAKE_WORD:-"porcupine"}
-    CLIENT_SAMPLE_RATE=${SAMPLE_RATE:-"16000"}
+    CLIENT_LED_ENABLED=${LED_ENABLED:-"true"}
+    CLIENT_LED_BRIGHTNESS=${LED_BRIGHTNESS:-"60"}
     
-    cat > "$CLIENT_DIR/.env" <<EOF
+    if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
+        # ALSA-only mode: No MIC_DEVICE/SPEAKER_DEVICE (auto-detect)
+        cat > "$CLIENT_DIR/.env" <<EOF
 # Device credentials
 DEVICE_ID=$DEVICE_ID_INPUT
 
@@ -249,18 +242,51 @@ ELEVENLABS_API_KEY=$CLIENT_ELEVENLABS_KEY
 PICOVOICE_ACCESS_KEY=$CLIENT_PICOVOICE_KEY
 WAKE_WORD=$CLIENT_WAKE_WORD
 
-# Audio devices
-MIC_DEVICE=echo_cancel.mic
-SPEAKER_DEVICE=echo_cancel.speaker
-
-# Audio configuration
-SAMPLE_RATE=$CLIENT_SAMPLE_RATE
+# LED Visual Feedback
+LED_ENABLED=$CLIENT_LED_ENABLED
+LED_BRIGHTNESS=$CLIENT_LED_BRIGHTNESS
 
 # OpenTelemetry
 OTEL_ENABLED=true
 OTEL_EXPORTER_ENDPOINT=http://localhost:4318
 ENV=$ENV_INPUT
 EOF
+    else
+        # PipeWire mode: Include MIC_DEVICE/SPEAKER_DEVICE for echo cancellation
+        cat > "$CLIENT_DIR/.env" <<EOF
+# Device credentials
+DEVICE_ID=$DEVICE_ID_INPUT
+
+# Supabase authentication
+SUPABASE_URL=$CLIENT_SUPABASE_URL
+SUPABASE_ANON_KEY=$CLIENT_SUPABASE_ANON_KEY
+EMAIL=$CLIENT_EMAIL
+PASSWORD=$CLIENT_PASSWORD
+
+# Backend
+CONVERSATION_ORCHESTRATOR_URL=$CLIENT_ORCHESTRATOR_URL
+
+# ElevenLabs API
+ELEVENLABS_API_KEY=$CLIENT_ELEVENLABS_KEY
+
+# Wake word detection
+PICOVOICE_ACCESS_KEY=$CLIENT_PICOVOICE_KEY
+WAKE_WORD=$CLIENT_WAKE_WORD
+
+# Audio devices (PipeWire echo cancellation)
+MIC_DEVICE=echo_cancel.mic
+SPEAKER_DEVICE=echo_cancel.speaker
+
+# LED Visual Feedback
+LED_ENABLED=$CLIENT_LED_ENABLED
+LED_BRIGHTNESS=$CLIENT_LED_BRIGHTNESS
+
+# OpenTelemetry
+OTEL_ENABLED=true
+OTEL_EXPORTER_ENDPOINT=http://localhost:4318
+ENV=$ENV_INPUT
+EOF
+    fi
     
     if [ "$USE_ENV_FILE" = true ] && [ -n "$SUPABASE_URL" ]; then
         log_success "Client .env created with values from wrapper .env"
@@ -306,116 +332,56 @@ else
 fi
 
 # Step 9: Setup PipeWire and Echo Cancellation
-log_info "Setting up PipeWire and Echo Cancellation..."
-
-if systemctl --user is-active --quiet pipewire 2>/dev/null; then
-    log_success "PipeWire is running"
+if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
+    log_info "Skipping PipeWire and echo cancellation setup (SKIP_ECHO_CANCEL_SETUP=true)"
+    log_info "Using ALSA-only mode - devices will be auto-detected by client"
+    log_success "Audio setup complete (ALSA direct access)"
 else
-    log_warning "PipeWire is not running (audio may not work)"
-    log_info "Starting PipeWire services..."
-    systemctl --user start pipewire pipewire-pulse wireplumber
-    sleep 2
-fi
+    log_info "Setting up PipeWire and Echo Cancellation..."
 
-log_info "Ensuring PipeWire services are enabled for this user..."
-if systemctl --user is-enabled --quiet pipewire 2>/dev/null && \
-   systemctl --user is-enabled --quiet pipewire-pulse 2>/dev/null && \
-   systemctl --user is-enabled --quiet wireplumber 2>/dev/null; then
-    log_success "PipeWire user services already enabled"
-else
-    systemctl --user enable pipewire pipewire-pulse wireplumber >/dev/null
-    log_success "PipeWire user services enabled"
-fi
-
-# Run echo cancellation setup
-echo ""
-# Check if echo cancellation is already configured
-# Verify both the config file exists AND the devices are actually working
-NEED_RECONFIG=false
-if [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ] && \
-   pactl list short sources 2>/dev/null | grep -q "echo_cancel.mic" && \
-   pactl list short sinks 2>/dev/null | grep -q "echo_cancel.speaker"; then
-    log_info "Echo cancellation already configured"
-    
-    # Test if devices are actually usable
-    if pactl get-source-volume echo_cancel.mic &>/dev/null && \
-       pactl get-sink-volume echo_cancel.speaker &>/dev/null; then
-        log_success "Echo cancellation devices verified and working"
-        
-        # Ensure .env has the echo cancel devices
-        if [ -f "$CLIENT_DIR/.env" ]; then
-            if ! grep -q "^MIC_DEVICE=echo_cancel.mic" "$CLIENT_DIR/.env"; then
-                log_info "Updating .env with echo cancellation devices..."
-                if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
-                    sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
-                else
-                    echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
-                fi
-                if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
-                    sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
-                else
-                    echo "SPEAKER_DEVICE=echo_cancel.speaker" >> "$CLIENT_DIR/.env"
-                fi
-                log_success ".env updated with echo cancellation devices"
-            fi
-        fi
+    if systemctl --user is-active --quiet pipewire 2>/dev/null; then
+        log_success "PipeWire is running"
     else
-        log_warning "Echo cancellation devices exist but are not functional"
-        log_info "Will reconfigure echo cancellation..."
-        
-        # Remove existing config to trigger reconfiguration
-        rm -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf"
-        systemctl --user restart pipewire pipewire-pulse wireplumber
-        sleep 3
-        
-        NEED_RECONFIG=true
+        log_warning "PipeWire is not running (audio may not work)"
+        log_info "Starting PipeWire services..."
+        systemctl --user start pipewire pipewire-pulse wireplumber
+        sleep 2
     fi
-else
-    log_info "Echo cancellation not configured or incomplete"
-    NEED_RECONFIG=true
-fi
 
-# Configure echo cancellation if needed
-if [ "$NEED_RECONFIG" = true ]; then
-    if [ -f "$WRAPPER_DIR/pipewire/setup-echo-cancel.sh" ]; then
-        log_info "Configuring echo cancellation for barge-in capability..."
-        cd "$WRAPPER_DIR/pipewire"
-        chmod +x setup-echo-cancel.sh
+    log_info "Ensuring PipeWire services are enabled for this user..."
+    if systemctl --user is-enabled --quiet pipewire 2>/dev/null && \
+       systemctl --user is-enabled --quiet pipewire-pulse 2>/dev/null && \
+       systemctl --user is-enabled --quiet wireplumber 2>/dev/null; then
+        log_success "PipeWire user services already enabled"
+    else
+        systemctl --user enable pipewire pipewire-pulse wireplumber >/dev/null
+        log_success "PipeWire user services enabled"
+    fi
+
+    # Run echo cancellation setup
+    echo ""
+    # Check if echo cancellation is already configured
+    # Verify both the config file exists AND the devices are actually working
+    NEED_RECONFIG=false
+    if [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ] && \
+       pactl list short sources 2>/dev/null | grep -q "echo_cancel.mic" && \
+       pactl list short sinks 2>/dev/null | grep -q "echo_cancel.speaker"; then
+        log_info "Echo cancellation already configured"
         
-        # Try auto-detection first, fall back to interactive if it fails
-        if [ "$USE_ENV_FILE" = true ]; then
-            # Fully automated mode - try auto-detect
-            log_info "Attempting auto-detection of default audio devices..."
-            if ./setup-echo-cancel.sh --auto 2>/dev/null; then
-                log_success "Auto-detected and configured echo cancellation"
-            else
-                log_warning "Auto-detection failed, falling back to interactive mode"
-                ./setup-echo-cancel.sh
-            fi
-        else
-            # Interactive mode - auto-detect with user confirmation
-            ./setup-echo-cancel.sh
-        fi
-        
-        # Check if echo cancellation was set up successfully
-        if pactl list short sources | grep -q "echo_cancel.mic" && \
-           pactl list short sinks | grep -q "echo_cancel.speaker"; then
+        # Test if devices are actually usable
+        if pactl get-source-volume echo_cancel.mic &>/dev/null && \
+           pactl get-sink-volume echo_cancel.speaker &>/dev/null; then
+            log_success "Echo cancellation devices verified and working"
             
-            # Test if devices are actually usable
-            if pactl get-source-volume echo_cancel.mic &>/dev/null && \
-               pactl get-sink-volume echo_cancel.speaker &>/dev/null; then
-                log_success "Echo cancellation configured and verified"
-                
-                # Automatically update .env with echo cancel devices
-                if [ -f "$CLIENT_DIR/.env" ]; then
+            # Ensure .env has the echo cancel devices
+            if [ -f "$CLIENT_DIR/.env" ]; then
+                if ! grep -q "^MIC_DEVICE=echo_cancel.mic" "$CLIENT_DIR/.env"; then
                     log_info "Updating .env with echo cancellation devices..."
-                    # Update MIC_DEVICE if it exists
                     if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
                         sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
                     else
                         echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
                     fi
-                    # Update SPEAKER_DEVICE if it exists
                     if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
                         sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
                     else
@@ -423,38 +389,119 @@ if [ "$NEED_RECONFIG" = true ]; then
                     fi
                     log_success ".env updated with echo cancellation devices"
                 fi
+            fi
+        else
+            log_warning "Echo cancellation devices exist but are not functional"
+            log_info "Will reconfigure echo cancellation..."
+            
+            # Remove existing config to trigger reconfiguration
+            rm -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf"
+            systemctl --user restart pipewire pipewire-pulse wireplumber
+            sleep 3
+            
+            NEED_RECONFIG=true
+        fi
+    else
+        log_info "Echo cancellation not configured or incomplete"
+        NEED_RECONFIG=true
+    fi
+
+    # Configure echo cancellation if needed
+    if [ "$NEED_RECONFIG" = true ]; then
+        if [ -f "$WRAPPER_DIR/pipewire/setup-echo-cancel.sh" ]; then
+            log_info "Configuring echo cancellation for barge-in capability..."
+            cd "$WRAPPER_DIR/pipewire"
+            chmod +x setup-echo-cancel.sh
+            
+            # Try auto-detection first, fall back to interactive if it fails
+            if [ "$USE_ENV_FILE" = true ]; then
+                # Fully automated mode - try auto-detect
+                log_info "Attempting auto-detection of default audio devices..."
+                if ./setup-echo-cancel.sh --auto 2>/dev/null; then
+                    log_success "Auto-detected and configured echo cancellation"
+                else
+                    log_warning "Auto-detection failed, falling back to interactive mode"
+                    ./setup-echo-cancel.sh
+                fi
             else
-                log_warning "Echo cancellation devices exist but are not functional"
+                # Interactive mode - auto-detect with user confirmation
+                ./setup-echo-cancel.sh
+            fi
+            
+            # Check if echo cancellation was set up successfully
+            if pactl list short sources | grep -q "echo_cancel.mic" && \
+               pactl list short sinks | grep -q "echo_cancel.speaker"; then
+                
+                # Test if devices are actually usable
+                if pactl get-source-volume echo_cancel.mic &>/dev/null && \
+                   pactl get-sink-volume echo_cancel.speaker &>/dev/null; then
+                    log_success "Echo cancellation configured and verified"
+                    
+                    # Automatically update .env with echo cancel devices
+                    if [ -f "$CLIENT_DIR/.env" ]; then
+                        log_info "Updating .env with echo cancellation devices..."
+                        # Update MIC_DEVICE if it exists
+                        if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
+                            sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
+                        else
+                            echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
+                        fi
+                        # Update SPEAKER_DEVICE if it exists
+                        if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
+                            sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
+                        else
+                            echo "SPEAKER_DEVICE=echo_cancel.speaker" >> "$CLIENT_DIR/.env"
+                        fi
+                        log_success ".env updated with echo cancellation devices"
+                    fi
+                else
+                    log_warning "Echo cancellation devices exist but are not functional"
+                    log_info "You may need to configure it manually later"
+                fi
+            else
+                log_warning "Echo cancellation setup incomplete"
                 log_info "You may need to configure it manually later"
             fi
         else
-            log_warning "Echo cancellation setup incomplete"
-            log_info "You may need to configure it manually later"
+            log_error "Echo cancellation setup script not found at $WRAPPER_DIR/pipewire/setup-echo-cancel.sh"
+            exit 1
         fi
-    else
-        log_error "Echo cancellation setup script not found at $WRAPPER_DIR/pipewire/setup-echo-cancel.sh"
-        exit 1
     fi
 fi
 
 # Step 10: Setup agent-launcher systemd service
 log_info "Setting up agent-launcher systemd service..."
 
-# Ensure linger is enabled so the user's PipeWire session stays alive at boot
-log_info "Ensuring systemd linger is enabled for user $USER..."
-if loginctl show-user "$USER" -p Linger 2>/dev/null | grep -q "yes"; then
-    log_success "Systemd linger already enabled for $USER"
-else
-    sudo loginctl enable-linger "$USER"
-    log_success "Enabled systemd linger for $USER"
+if [ "$SKIP_ECHO_CANCEL" != "true" ]; then
+    # Ensure linger is enabled so the user's PipeWire session stays alive at boot
+    log_info "Ensuring systemd linger is enabled for user $USER (required for PipeWire)..."
+    if loginctl show-user "$USER" -p Linger 2>/dev/null | grep -q "yes"; then
+        log_success "Systemd linger already enabled for $USER"
+    else
+        sudo loginctl enable-linger "$USER"
+        log_success "Enabled systemd linger for $USER"
+    fi
 fi
 
 # Generate environment file used by the systemd service
 AGENT_ENV_FILE="/etc/default/agent-launcher"
 AGENT_UID="$(id -u "$USER")"
 log_info "Writing agent-launcher environment to $AGENT_ENV_FILE..."
-sudo tee "$AGENT_ENV_FILE" > /dev/null <<EOF
+
+if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
+    # ALSA-only mode - minimal environment
+    sudo tee "$AGENT_ENV_FILE" > /dev/null <<EOF
 # Automatically generated by raspberry-pi-client-wrapper/install.sh
+# ALSA-only mode (SKIP_ECHO_CANCEL_SETUP=true)
+AGENT_USER=$USER
+AGENT_UID=$AGENT_UID
+EOF
+    log_success "Environment file written (ALSA-only mode)"
+else
+    # PipeWire mode - include PulseAudio environment
+    sudo tee "$AGENT_ENV_FILE" > /dev/null <<EOF
+# Automatically generated by raspberry-pi-client-wrapper/install.sh
+# PipeWire mode (SKIP_ECHO_CANCEL_SETUP=false)
 AGENT_USER=$USER
 AGENT_UID=$AGENT_UID
 XDG_RUNTIME_DIR=/run/user/$AGENT_UID
@@ -462,13 +509,25 @@ DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$AGENT_UID/bus
 PULSE_SERVER=unix:/run/user/$AGENT_UID/pulse/native
 PULSE_SOCKET_PATH=/run/user/$AGENT_UID/pulse/native
 EOF
-log_success "Environment file written"
+    log_success "Environment file written (PipeWire mode)"
+fi
 
 if [ -f "$WRAPPER_DIR/services/agent-launcher.service" ]; then
-    # Update service file with correct paths
-    sed "s|/home/pi/raspberry-pi-client-wrapper|$WRAPPER_DIR|g" \
-        "$WRAPPER_DIR/services/agent-launcher.service" | \
-        sudo tee /etc/systemd/system/agent-launcher.service > /dev/null
+    # Update service file with correct paths and conditionally include ExecStartPre
+    if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
+        # ALSA-only mode: Remove ExecStartPre (PulseAudio socket check)
+        log_info "Generating service file (ALSA-only, no PulseAudio check)..."
+        sed "s|/home/pi/raspberry-pi-client-wrapper|$WRAPPER_DIR|g" \
+            "$WRAPPER_DIR/services/agent-launcher.service" | \
+            sed '/^ExecStartPre=/d' | \
+            sudo tee /etc/systemd/system/agent-launcher.service > /dev/null
+    else
+        # PipeWire mode: Keep ExecStartPre (PulseAudio socket check)
+        log_info "Generating service file (PipeWire mode, with PulseAudio check)..."
+        sed "s|/home/pi/raspberry-pi-client-wrapper|$WRAPPER_DIR|g" \
+            "$WRAPPER_DIR/services/agent-launcher.service" | \
+            sudo tee /etc/systemd/system/agent-launcher.service > /dev/null
+    fi
     
     # Update User= field if not running as pi
     if [ "$USER" != "pi" ]; then

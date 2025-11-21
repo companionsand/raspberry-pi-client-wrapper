@@ -72,6 +72,11 @@ nano .env
    # Git configuration (optional)
    GIT_BRANCH=main  # Branch to use for raspberry-pi-client repo
 
+   # Audio setup mode (optional)
+   SKIP_ECHO_CANCEL_SETUP=false  # Set to true to skip PipeWire/echo cancellation
+                                  # Use true if you have ReSpeaker with hardware AEC
+                                  # Use false if using separate USB mic/speaker
+
    # Client configuration (all required for no-prompt install)
    SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_ANON_KEY=your-key
@@ -81,8 +86,9 @@ nano .env
    ELEVENLABS_API_KEY=your-key
    PICOVOICE_ACCESS_KEY=your-key
 
-   # Audio configuration
-   SAMPLE_RATE=16000  # Common values: 16000 or 48000
+   # LED configuration (optional - for ReSpeaker)
+   LED_ENABLED=true       # Enable LED visual feedback
+   LED_BRIGHTNESS=60      # Brightness level (0-100)
    ```
 
 3. **Run installation** - completely automated:
@@ -95,30 +101,7 @@ nano .env
 
 If you prefer to enter values during installation or don't have all values yet:
 
-### 1. Setup GitHub SSH Access (Required)
-
-Since the `raspberry-pi-client` repository is private, you need to set up SSH keys on your Raspberry Pi first:
-
-```bash
-# SSH into your Pi
-ssh pi@raspberrypi.local
-
-# Generate SSH key
-ssh-keygen -t ed25519 -C "your_email@example.com"
-# Press Enter to accept defaults
-
-# Display your public key
-cat ~/.ssh/id_ed25519.pub
-
-# Copy the output and add it to GitHub:
-# https://github.com/settings/ssh/new
-
-# Test the connection
-ssh -T git@github.com
-# You should see: "Hi <username>! You've successfully authenticated..."
-```
-
-### 2. Copy Wrapper to Pi
+### 1. Copy Wrapper to Pi
 
 Copy this entire `raspberry-pi-client-wrapper` directory to your Raspberry Pi:
 
@@ -130,7 +113,7 @@ scp -r raspberry-pi-client-wrapper pi@raspberrypi.local:~/
 rsync -av raspberry-pi-client-wrapper pi@raspberrypi.local:~/
 ```
 
-### 3. Run Installation Script
+### 2. Run Installation Script
 
 SSH into your Raspberry Pi and run the installer:
 
@@ -144,16 +127,15 @@ chmod +x install.sh
 The installer will:
 
 1. ✓ Check system compatibility
-2. ✓ **Verify GitHub SSH access** (exits with instructions if not configured)
-3. ✓ Install system dependencies (Python, PipeWire, audio libraries)
-4. ✓ Clone the raspberry-pi-client repository
-5. ✓ Create Python virtual environment
-6. ✓ Install Python requirements
-7. ✓ **Prompt for configuration** (Device ID, OTEL endpoint, Environment)
-8. ✓ Setup OpenTelemetry Collector with systemd service
-9. ✓ **Setup Echo Cancellation** (prompts for microphone and speaker selection)
-10. ✓ Setup agent-launcher systemd service (with auto-restart)
-11. ✓ Create .env template files (with echo cancellation devices pre-configured)
+2. ✓ Install system dependencies (Python, ALSA, audio libraries)
+3. ✓ Clone the raspberry-pi-client repository (now public!)
+4. ✓ Create Python virtual environment
+5. ✓ Install Python requirements
+6. ✓ **Prompt for configuration** (Device ID, OTEL endpoint, Environment)
+7. ✓ Setup OpenTelemetry Collector with systemd service
+8. ✓ **Setup Echo Cancellation** (optional - prompts for microphone and speaker selection if not skipped)
+9. ✓ Setup agent-launcher systemd service (with auto-restart)
+10. ✓ Create .env template files
 
 **Installation takes 5-10 minutes** depending on your Pi model and internet speed.
 
@@ -187,7 +169,7 @@ During installation, you'll be asked to provide:
 
 These values will be automatically configured in the system and `.env` file.
 
-### 4. Configure API Keys and Credentials
+### 3. Configure API Keys and Credentials
 
 After installation, configure the client with your API keys:
 
@@ -217,7 +199,7 @@ PICOVOICE_ACCESS_KEY=your-picovoice-access-key-here
 - If you used the automated installation (with .env file), all configuration is complete and services are already running!
 - If you used interactive installation, Device ID, OTEL endpoint, and environment are already set. Add your API keys and restart services as shown below.
 
-### 5. Restart Services (Interactive Mode Only)
+### 4. Restart Services (Interactive Mode Only)
 
 **If you installed with .env file:** Services are already running, skip this step!
 
@@ -232,7 +214,7 @@ sudo systemctl status otelcol
 sudo systemctl status agent-launcher
 ```
 
-### 6. View Logs
+### 5. View Logs
 
 ```bash
 # Agent launcher logs (main application)
@@ -305,7 +287,27 @@ The `launch.sh` script runs on every boot:
 | `otelcol.service`        | System | OpenTelemetry Collector   | ✓ Yes      | ✓ Yes             |
 | `agent-launcher.service` | System | Client Launcher & Updater | ✓ Yes      | ✓ Yes (unlimited) |
 
-## Echo Cancellation (Automatic During Install)
+## Echo Cancellation (Optional)
+
+### Overview
+
+The wrapper supports two audio modes:
+
+1. **PipeWire Echo Cancellation** (default - `SKIP_ECHO_CANCEL_SETUP=false`):
+   - Software-based echo cancellation using PipeWire
+   - Best for separate USB microphone and speaker
+   - Enables "barge-in" (user can interrupt the AI)
+
+2. **ALSA-Only Mode** (`SKIP_ECHO_CANCEL_SETUP=true`):
+   - Direct ALSA access, no PipeWire
+   - Best for ReSpeaker with hardware echo cancellation
+   - Automatic device detection
+   - Simpler, lighter setup
+
+**To skip echo cancellation setup**, add to your wrapper `.env` file:
+```bash
+SKIP_ECHO_CANCEL_SETUP=true
+```
 
 ### What is Echo Cancellation?
 
@@ -317,6 +319,8 @@ Echo cancellation (AEC) allows the device to:
 - Enable "barge-in" (user can interrupt the AI)
 
 Without AEC, the microphone picks up the speaker's output, causing feedback loops.
+
+**Note**: If you have ReSpeaker 4 Mic Array with built-in hardware AEC, you can skip PipeWire setup entirely by setting `SKIP_ECHO_CANCEL_SETUP=true`.
 
 ### Automatic Setup During Installation
 
@@ -459,38 +463,6 @@ sudo systemctl start agent-launcher
 
 ## Troubleshooting
 
-### GitHub SSH Authentication Fails
-
-**Problem**: Installation fails with "GitHub SSH authentication failed!"
-
-**Solution:**
-
-```bash
-# 1. Generate SSH key if you haven't already
-ssh-keygen -t ed25519 -C "your_email@example.com"
-
-# 2. Display your public key
-cat ~/.ssh/id_ed25519.pub
-
-# 3. Copy the entire output and add it to GitHub:
-# Go to: https://github.com/settings/ssh/new
-# Paste the key and save
-
-# 4. Test the connection
-ssh -T git@github.com
-# Expected output: "Hi <username>! You've successfully authenticated..."
-
-# 5. Re-run the installer
-cd ~/raspberry-pi-client-wrapper
-./install.sh
-```
-
-**Common SSH issues:**
-
-- Permission denied: SSH key not added to GitHub
-- Host key verification failed: Run `ssh -T git@github.com` and accept the host key
-- No route to host: Check internet connection
-
 ### Agent Won't Start
 
 **Check logs:**
@@ -527,48 +499,6 @@ sudo journalctl -u agent-launcher -n 100
 # Filter for Python errors
 sudo journalctl -u agent-launcher | grep -i error
 ```
-
-### Invalid Sample Rate Error
-
-**Problem**: Client crashes with `PortAudioError: Invalid sample rate [PaErrorCode -9997]`
-
-**Cause**: The audio hardware doesn't support the configured sample rate.
-
-**Solution 1** - Change sample rate in wrapper .env:
-
-```bash
-# Edit wrapper .env file
-nano ~/raspberry-pi-client-wrapper/.env
-
-# Try different sample rates (common values):
-SAMPLE_RATE=16000   # 16kHz (most compatible)
-SAMPLE_RATE=48000   # 48kHz (higher quality)
-SAMPLE_RATE=44100   # 44.1kHz (CD quality)
-
-# After changing, reinstall to update client .env
-./install.sh
-```
-
-**Solution 2** - Manually edit client .env:
-
-```bash
-nano ~/raspberry-pi-client-wrapper/raspberry-pi-client/.env
-
-# Change SAMPLE_RATE value
-SAMPLE_RATE=16000
-
-# Restart service
-sudo systemctl restart agent-launcher
-```
-
-**Note**: The raspberry-pi-client code must use the `SAMPLE_RATE` environment variable for this to work. Update your client code to read this value:
-
-```python
-import os
-SAMPLE_RATE = int(os.getenv('SAMPLE_RATE', '16000'))
-```
-
-Then use `SAMPLE_RATE` in your PortAudio/sounddevice configuration instead of a hardcoded value.
 
 ### Audio Issues (No Microphone/Speaker Detected)
 
@@ -778,10 +708,10 @@ sudo reboot
 
 ### Git Repository
 
-- **URL**: `git@github.com:companionsand/raspberry-pi-client.git` (SSH)
+- **URL**: `https://github.com/companionsand/raspberry-pi-client.git` (HTTPS - public repo)
 - **Branch**: Configurable via `GIT_BRANCH` in `.env` (default: `main`)
 - **Clone Location**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/`
-- **Authentication**: Requires SSH key added to GitHub account
+- **Authentication**: None required (public repository)
 
 ### Paths
 
