@@ -119,9 +119,92 @@ fi
 
 log_success "Configuration file found"
 
-# Step 6: Run the client
-log_info "Starting Kin AI client..."
+# Step 6: Run the client with idle-time monitoring
+log_info "Starting Kin AI client with idle-time monitoring..."
+log_info "Will restart after 3 hours of inactivity for updates"
 log_info "========================================="
 
-# Run main.py (this will block until the process exits)
-exec python main.py
+# Activity tracking file
+ACTIVITY_FILE="$WRAPPER_DIR/.last_activity"
+IDLE_TIMEOUT=10800  # 3 hours in seconds
+
+# Function to check idle time
+check_idle_time() {
+    if [ ! -f "$ACTIVITY_FILE" ]; then
+        return 1  # File doesn't exist, not idle
+    fi
+    
+    local current_time=$(date +%s)
+    local file_mtime=$(stat -f %m "$ACTIVITY_FILE" 2>/dev/null || stat -c %Y "$ACTIVITY_FILE" 2>/dev/null)
+    local idle_time=$((current_time - file_mtime))
+    
+    if [ $idle_time -ge $IDLE_TIMEOUT ]; then
+        return 0  # Idle timeout reached
+    else
+        return 1  # Still active
+    fi
+}
+
+# Run main.py in a loop with idle-time monitoring
+while true; do
+    log_info "Starting main.py..."
+    
+    # Initialize activity file
+    touch "$ACTIVITY_FILE"
+    
+    # Start main.py in background so we can monitor it
+    python main.py &
+    MAIN_PID=$!
+    
+    log_info "main.py started (PID: $MAIN_PID)"
+    
+    # Monitor process and idle time
+    while kill -0 $MAIN_PID 2>/dev/null; do
+        # Check if idle timeout reached
+        if check_idle_time; then
+            log_info "3 hours of idle time detected, restarting for updates..."
+            kill -TERM $MAIN_PID 2>/dev/null || true
+            sleep 5
+            kill -KILL $MAIN_PID 2>/dev/null || true
+            break
+        fi
+        
+        # Check every 60 seconds
+        sleep 60
+    done
+    
+    # Wait for process to fully exit
+    wait $MAIN_PID 2>/dev/null || true
+    exit_code=$?
+    
+    if [ $exit_code -ne 0 ] && [ $exit_code -ne 143 ] && [ $exit_code -ne 137 ]; then
+        # Non-zero exit that's not SIGTERM (143) or SIGKILL (137)
+        log_error "main.py exited with code $exit_code, restarting in 5 seconds..."
+        sleep 5
+    else
+        log_info "main.py stopped, restarting..."
+        sleep 2
+    fi
+    
+    # Before restarting, pull latest changes from git
+    log_info "Checking for updates before restart..."
+    cd "$CLIENT_DIR"
+    git fetch origin "$GIT_BRANCH" 2>/dev/null || true
+    
+    # Check if there are updates
+    LOCAL=$(git rev-parse HEAD)
+    REMOTE=$(git rev-parse "origin/$GIT_BRANCH")
+    
+    if [ "$LOCAL" != "$REMOTE" ]; then
+        log_info "Updates found, pulling latest changes..."
+        git reset --hard "origin/$GIT_BRANCH"
+        
+        # Reinstall requirements in case they changed
+        pip install -r requirements.txt -q
+        log_success "Updates applied"
+    else
+        log_info "Already up to date"
+    fi
+    
+    cd "$CLIENT_DIR"
+done
