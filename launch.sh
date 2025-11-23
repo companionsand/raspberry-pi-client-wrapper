@@ -135,7 +135,14 @@ check_idle_time() {
     fi
     
     local current_time=$(date +%s)
-    local file_mtime=$(stat -f %m "$ACTIVITY_FILE" 2>/dev/null || stat -c %Y "$ACTIVITY_FILE" 2>/dev/null)
+    # Try Linux stat first (more common for Raspberry Pi), then macOS stat
+    local file_mtime=$(stat -c %Y "$ACTIVITY_FILE" 2>/dev/null || stat -f %m "$ACTIVITY_FILE" 2>/dev/null)
+    
+    # Verify we got a valid number
+    if ! [[ "$file_mtime" =~ ^[0-9]+$ ]]; then
+        return 1  # Invalid mtime, treat as not idle
+    fi
+    
     local idle_time=$((current_time - file_mtime))
     
     if [ $idle_time -ge $IDLE_TIMEOUT ]; then
