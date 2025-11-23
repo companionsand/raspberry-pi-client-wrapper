@@ -50,8 +50,9 @@ else
     log_info "No .env file found - will prompt for configuration"
 fi
 
-# Set Git branch (from .env or default to main)
-GIT_BRANCH=${GIT_BRANCH:-"main"}
+# Set defaults for optional configuration
+GIT_BRANCH=${GIT_BRANCH:-"main"}  # Default to main branch
+SKIP_ECHO_CANCEL_SETUP=${SKIP_ECHO_CANCEL_SETUP:-"true"}  # Default to true (skip for ReSpeaker hardware AEC)
 
 # Print header
 echo "========================================="
@@ -90,11 +91,11 @@ log_success "Package list updated"
 log_info "Installing system dependencies..."
 log_info "This may take several minutes..."
 
-# Check if we should skip PipeWire/echo cancellation setup
-SKIP_ECHO_CANCEL=${SKIP_ECHO_CANCEL_SETUP:-false}
+# Use SKIP_ECHO_CANCEL_SETUP for echo cancellation setup (already has default)
+SKIP_ECHO_CANCEL="$SKIP_ECHO_CANCEL_SETUP"
 
 if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
-    log_info "SKIP_ECHO_CANCEL_SETUP=true - Installing ALSA-only dependencies..."
+    log_info "SKIP_ECHO_CANCEL_SETUP=true - Installing ALSA-only dependencies (ReSpeaker hardware AEC)..."
     sudo apt install -y \
         python3-pip \
         python3-venv \
