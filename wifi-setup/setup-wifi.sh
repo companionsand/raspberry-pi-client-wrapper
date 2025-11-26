@@ -36,6 +36,34 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Check for required packages
+check_dependencies() {
+    local missing_packages=()
+    
+    if ! command -v hostapd &> /dev/null; then
+        missing_packages+=("hostapd")
+    fi
+    
+    if ! command -v dnsmasq &> /dev/null; then
+        missing_packages+=("dnsmasq")
+    fi
+    
+    if ! command -v rfkill &> /dev/null; then
+        missing_packages+=("rfkill")
+    fi
+    
+    if [ ${#missing_packages[@]} -gt 0 ]; then
+        log_error "Missing required packages: ${missing_packages[*]}"
+        log_info "Installing missing packages..."
+        apt-get update
+        apt-get install -y "${missing_packages[@]}"
+    fi
+    
+    # Ensure WiFi is not blocked
+    log_info "Checking WiFi radio status..."
+    rfkill unblock wifi 2>/dev/null || true
+}
+
 # Function to check internet connectivity
 check_internet() {
     ping -c 1 -W 2 8.8.8.8 &> /dev/null
@@ -45,9 +73,27 @@ check_internet() {
 create_ap() {
     log_info "Creating WiFi access point: $AP_SSID"
     
+    # Check if WiFi interface exists
+    if ! ip link show "$AP_INTERFACE" &> /dev/null; then
+        log_error "WiFi interface $AP_INTERFACE not found"
+        log_info "Available network interfaces:"
+        ip link show
+        return 1
+    fi
+    
     # Stop existing network services
     systemctl stop wpa_supplicant 2>/dev/null || true
-    systemctl stop dhcpcd 2>/dev/null || true
+    systemctl stop NetworkManager 2>/dev/null || true
+    
+    # Try to stop dhcpcd if it exists, unmask it if needed
+    if systemctl list-unit-files | grep -q "^dhcpcd.service"; then
+        systemctl unmask dhcpcd 2>/dev/null || true
+        systemctl stop dhcpcd 2>/dev/null || true
+    fi
+    
+    # Unmask and enable hostapd and dnsmasq services
+    systemctl unmask hostapd 2>/dev/null || true
+    systemctl unmask dnsmasq 2>/dev/null || true
     
     # Configure hostapd
     cat > /etc/hostapd/hostapd.conf <<EOF
@@ -68,25 +114,36 @@ interface=$AP_INTERFACE
 dhcp-range=192.168.4.2,192.168.4.20,255.255.255.0,24h
 EOF
     
-    # Configure static IP for AP
-    cat > /etc/dhcpcd.conf.ap <<EOF
-interface $AP_INTERFACE
-static ip_address=192.168.4.1/24
-nohook wpa_supplicant
-EOF
+    # Bring down the interface first
+    ip link set "$AP_INTERFACE" down 2>/dev/null || true
+    sleep 1
     
-    # Backup original dhcpcd.conf
-    if [ ! -f /etc/dhcpcd.conf.backup ]; then
-        cp /etc/dhcpcd.conf /etc/dhcpcd.conf.backup
-    fi
+    # Bring up the interface
+    ip link set "$AP_INTERFACE" up 2>/dev/null || true
+    sleep 1
     
-    # Use AP config
-    cp /etc/dhcpcd.conf.ap /etc/dhcpcd.conf
+    # Configure static IP directly using ip command
+    ip addr flush dev "$AP_INTERFACE" 2>/dev/null || true
+    ip addr add 192.168.4.1/24 dev "$AP_INTERFACE" 2>/dev/null || true
+    
+    log_info "Configured static IP 192.168.4.1 on $AP_INTERFACE"
     
     # Start services
+    log_info "Starting hostapd..."
     systemctl start hostapd
+    if [ $? -ne 0 ]; then
+        log_error "Failed to start hostapd"
+        journalctl -u hostapd -n 20 --no-pager
+        return 1
+    fi
+    
+    log_info "Starting dnsmasq..."
     systemctl start dnsmasq
-    systemctl start dhcpcd
+    if [ $? -ne 0 ]; then
+        log_error "Failed to start dnsmasq"
+        journalctl -u dnsmasq -n 20 --no-pager
+        return 1
+    fi
     
     log_success "WiFi access point created"
 }
@@ -98,12 +155,24 @@ stop_ap() {
     systemctl stop hostapd 2>/dev/null || true
     systemctl stop dnsmasq 2>/dev/null || true
     
-    # Restore original dhcpcd.conf
-    if [ -f /etc/dhcpcd.conf.backup ]; then
-        cp /etc/dhcpcd.conf.backup /etc/dhcpcd.conf
-    fi
+    # Mask services to prevent auto-start on boot
+    systemctl mask hostapd 2>/dev/null || true
+    systemctl mask dnsmasq 2>/dev/null || true
     
-    systemctl restart dhcpcd 2>/dev/null || true
+    # Flush IP configuration
+    ip addr flush dev "$AP_INTERFACE" 2>/dev/null || true
+    
+    # Bring interface down and back up
+    ip link set "$AP_INTERFACE" down 2>/dev/null || true
+    sleep 1
+    ip link set "$AP_INTERFACE" up 2>/dev/null || true
+    
+    # Restart NetworkManager if it exists, otherwise try dhcpcd
+    if systemctl list-unit-files | grep -q "^NetworkManager.service"; then
+        systemctl restart NetworkManager 2>/dev/null || true
+    elif systemctl list-unit-files | grep -q "^dhcpcd.service"; then
+        systemctl restart dhcpcd 2>/dev/null || true
+    fi
     
     log_success "WiFi access point stopped"
 }
@@ -526,6 +595,9 @@ PYTHON_EOF
 # Main setup flow
 main() {
     log_info "Starting WiFi setup mode..."
+    
+    # Check and install dependencies if needed
+    check_dependencies
     
     # Create setup directory
     mkdir -p "$SETUP_DIR"
