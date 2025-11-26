@@ -686,6 +686,212 @@ PYTHON_EOF
     
     chmod +x "$SETUP_DIR/http_server.py"
     
+    # Create setup.html page
+    cat > "$SETUP_DIR/setup.html" <<'HTML_EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kin Device Setup</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        select, input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        select:focus, input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Kin Device Setup</h1>
+        <p class="subtitle">Configure your WiFi network to get started</p>
+        
+        <div id="message"></div>
+        
+        <form id="setupForm">
+            <div class="form-group">
+                <label for="ssid">WiFi Network</label>
+                <select id="ssid" name="ssid" required>
+                    <option value="">Scanning for networks...</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">WiFi Password (leave blank if open)</label>
+                <input type="password" id="password" name="password" placeholder="Enter WiFi password">
+            </div>
+            
+            <div class="form-group">
+                <label for="pairingCode">Pairing Code</label>
+                <input type="text" id="pairingCode" name="pairingCode" pattern="[0-9]{4}" maxlength="4" placeholder="1234" required>
+            </div>
+            
+            <button type="submit" id="submitBtn">Connect</button>
+        </form>
+    </div>
+    
+    <script>
+        const ssidSelect = document.getElementById('ssid');
+        const form = document.getElementById('setupForm');
+        const messageDiv = document.getElementById('message');
+        const submitBtn = document.getElementById('submitBtn');
+        
+        function showMessage(text, type) {
+            messageDiv.innerHTML = '<div class="message ' + type + '">' + text + '</div>';
+        }
+        
+        // Load WiFi networks
+        fetch('/networks')
+            .then(response => response.json())
+            .then(data => {
+                ssidSelect.innerHTML = '<option value="">Select a network...</option>';
+                data.networks.forEach(network => {
+                    const option = document.createElement('option');
+                    option.value = network.ssid;
+                    option.textContent = network.ssid + (network.encrypted ? ' 🔒' : '');
+                    ssidSelect.appendChild(option);
+                });
+            })
+            .catch(error => {
+                showMessage('Failed to load WiFi networks. Please refresh the page.', 'error');
+            });
+        
+        // Handle form submission
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Connecting...';
+            
+            const formData = new FormData(form);
+            const data = {
+                ssid: formData.get('ssid'),
+                password: formData.get('password') || '',
+                pairing_code: formData.get('pairingCode')
+            };
+            
+            try {
+                const response = await fetch('/configure', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('WiFi configured successfully! Device will restart and connect...', 'success');
+                    setTimeout(() => {
+                        showMessage('Setup complete! You can close this page.', 'success');
+                    }, 2000);
+                } else {
+                    showMessage('Error: ' + (result.error || 'Failed to configure WiFi'), 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Connect';
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Connect';
+            }
+        });
+    </script>
+</body>
+</html>
+HTML_EOF
+    
+    log_info "Created setup.html in $SETUP_DIR"
+    
     # Start server in background
     python3 "$SETUP_DIR/http_server.py" > /dev/null 2>&1 &
     HTTP_SERVER_PID=$!

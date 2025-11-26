@@ -47,3 +47,9 @@ logs/
 
 # Test scripts
 test*.py
+
+# WiFi setup runtime files
+wifi-setup/http_server.py
+wifi-setup/setup.html
+wifi-setup/http_server.pid
+wifi-setup/*.pid
