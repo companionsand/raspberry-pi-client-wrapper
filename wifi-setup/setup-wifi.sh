@@ -235,9 +235,67 @@ EOF
     fi
 }
 
+# Function to cleanup old processes and credentials
+cleanup_old_processes() {
+    log_info "Cleaning up old processes and credentials..."
+    
+    # Kill old HTTP server processes
+    if [ -f "$SETUP_DIR/http_server.pid" ]; then
+        local old_pid=$(cat "$SETUP_DIR/http_server.pid" 2>/dev/null)
+        if [ -n "$old_pid" ]; then
+            kill "$old_pid" 2>/dev/null || true
+            log_info "Killed old HTTP server (PID: $old_pid)"
+        fi
+    fi
+    
+    # Kill any stray Python HTTP servers on port 80
+    if command -v lsof &> /dev/null; then
+        local http_pids=$(lsof -ti:80 2>/dev/null || true)
+        if [ -n "$http_pids" ]; then
+            kill $http_pids 2>/dev/null || true
+            log_info "Killed HTTP processes on port 80"
+        fi
+    else
+        # Fallback: kill all Python processes (less precise but works)
+        pkill -f "http_server.py" 2>/dev/null || true
+    fi
+    
+    # Kill hostapd processes
+    pkill -9 hostapd 2>/dev/null || true
+    
+    # Kill dnsmasq processes (but be careful with system dnsmasq)
+    # We'll let systemd handle this via stop commands
+    
+    # Clean up old temp files
+    rm -f "$SETUP_DIR/http_server.pid" 2>/dev/null || true
+    rm -f "$SETUP_DIR/http_server.py" 2>/dev/null || true
+    rm -f "$SETUP_DIR/setup.html" 2>/dev/null || true
+    
+    # Clear pairing code
+    if [ -f "$PAIRING_CODE_FILE" ]; then
+        rm -f "$PAIRING_CODE_FILE"
+        log_info "Cleared old pairing code"
+    fi
+    
+    # Disconnect from any WiFi networks (in case we're stuck in a bad connection)
+    if command -v nmcli &> /dev/null; then
+        # Get current WiFi connection on wlan0
+        local current_connection=$(nmcli -t -f NAME,DEVICE connection show --active | grep "$AP_INTERFACE" | cut -d: -f1)
+        if [ -n "$current_connection" ]; then
+            nmcli connection down "$current_connection" 2>/dev/null || true
+            log_info "Disconnected from WiFi: $current_connection"
+        fi
+    fi
+    
+    log_info "Cleanup complete"
+}
+
 # Function to stop WiFi AP
 stop_ap() {
     log_info "Stopping WiFi access point..."
+    
+    # First cleanup any old processes
+    cleanup_old_processes
     
     systemctl stop hostapd 2>/dev/null || true
     systemctl stop dnsmasq 2>/dev/null || true
@@ -245,9 +303,6 @@ stop_ap() {
     # Mask services to prevent auto-start on boot
     systemctl mask hostapd 2>/dev/null || true
     systemctl mask dnsmasq 2>/dev/null || true
-    
-    # Kill any manually started hostapd processes
-    killall hostapd 2>/dev/null || true
     
     # Flush IP configuration
     ip addr flush dev "$AP_INTERFACE" 2>/dev/null || true
@@ -913,6 +968,10 @@ main() {
     # Check and install dependencies if needed
     check_dependencies
     
+    # Clean up any old processes from previous runs
+    log_info "Cleaning up any old processes..."
+    cleanup_old_processes
+    
     # Create setup directory
     mkdir -p "$SETUP_DIR"
     
@@ -962,6 +1021,11 @@ main() {
                 if [ $retry_count -lt $MAX_RETRIES ]; then
                     log_info "Retrying... ($retry_count/$MAX_RETRIES)"
                     rm -f "$PAIRING_CODE_FILE"
+                    
+                    # Clean up before restarting
+                    cleanup_old_processes
+                    sleep 2
+                    
                     create_ap
                     start_http_server_with_api
                 fi
@@ -976,13 +1040,17 @@ main() {
             else
                 log_error "WiFi connected but no internet access. Retrying... ($retry_count/$MAX_RETRIES)"
                 log_info "Checking DNS resolution..."
-                nslookup google.com 2>&1 | head -10 || true
+                host google.com 2>&1 || dig google.com 2>&1 | head -5 || true
                 
                 retry_count=$((retry_count + 1))
                 
                 if [ $retry_count -lt $MAX_RETRIES ]; then
                     # Remove pairing code so user can try again
                     rm -f "$PAIRING_CODE_FILE"
+                    
+                    # Clean up before restarting
+                    cleanup_old_processes
+                    sleep 2
                     
                     # Restart AP for retry
                     create_ap

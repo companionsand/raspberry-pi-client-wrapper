@@ -53,3 +53,6 @@ wifi-setup/http_server.py
 wifi-setup/setup.html
 wifi-setup/http_server.pid
 wifi-setup/*.pid
+
+# Activity tracking
+.last_activity
