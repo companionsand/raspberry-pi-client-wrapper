@@ -135,15 +135,33 @@ EOF
 [Service]
 ExecStart=
 ExecStart=/usr/sbin/hostapd /etc/hostapd/hostapd.conf
+Type=simple
+TimeoutStartSec=30
+Restart=on-failure
+RestartSec=5
 EOF
     
     systemctl daemon-reload
     
+    # Backup original dnsmasq config
+    if [ ! -f /etc/dnsmasq.conf.backup ]; then
+        cp /etc/dnsmasq.conf /etc/dnsmasq.conf.backup 2>/dev/null || true
+    fi
+    
     # Configure dnsmasq for DHCP
     cat > /etc/dnsmasq.conf <<EOF
+# Kin Setup AP Configuration
 interface=$AP_INTERFACE
+bind-interfaces
 dhcp-range=192.168.4.2,192.168.4.20,255.255.255.0,24h
+dhcp-option=3,192.168.4.1
+dhcp-option=6,192.168.4.1
+server=8.8.8.8
+log-dhcp
+no-resolv
 EOF
+    
+    log_info "dnsmasq configured"
     
     # Bring down the interface first
     ip link set "$AP_INTERFACE" down 2>/dev/null || true
@@ -161,37 +179,49 @@ EOF
     
     # Start services
     log_info "Starting hostapd..."
-    systemctl restart hostapd
-    sleep 2
     
-    if ! systemctl is-active --quiet hostapd; then
-        log_error "hostapd failed to start via systemctl, trying manual start..."
-        journalctl -u hostapd -n 20 --no-pager
+    # Start hostapd (ignore timeout errors as long as it's actually running)
+    systemctl restart hostapd 2>&1 | grep -v "timeout" || true
+    sleep 3
+    
+    # Check if hostapd is actually running (process check, not systemd state)
+    if pgrep -x hostapd > /dev/null; then
+        log_info "hostapd process is running"
+        
+        # Double-check that AP is enabled by looking at recent logs
+        if journalctl -u hostapd --since "30 seconds ago" -n 50 | grep -q "AP-ENABLED"; then
+            log_success "hostapd is running and AP is enabled!"
+        else
+            log_info "hostapd is running but checking status..."
+        fi
+    else
+        log_error "hostapd process not found, trying manual start..."
         
         # Try starting hostapd manually as a fallback
         log_info "Attempting to start hostapd manually..."
         killall hostapd 2>/dev/null || true
         /usr/sbin/hostapd -B /etc/hostapd/hostapd.conf
-        sleep 2
+        sleep 3
         
         if ! pgrep -x hostapd > /dev/null; then
             log_error "Failed to start hostapd manually. Checking configuration..."
-            /usr/sbin/hostapd -d /etc/hostapd/hostapd.conf &
-            sleep 3
-            killall hostapd 2>/dev/null || true
+            /usr/sbin/hostapd -d /etc/hostapd/hostapd.conf 2>&1 | head -50
             return 1
         fi
         log_info "hostapd started manually"
     fi
     
     log_info "Starting dnsmasq..."
-    systemctl restart dnsmasq
-    sleep 1
+    systemctl restart dnsmasq 2>&1 | grep -v "timeout" || true
+    sleep 2
     
-    if ! systemctl is-active --quiet dnsmasq; then
+    # Check if dnsmasq is running (process check)
+    if pgrep -x dnsmasq > /dev/null || systemctl is-active --quiet dnsmasq; then
+        log_success "dnsmasq is running"
+    else
         log_error "Failed to start dnsmasq"
         journalctl -u dnsmasq -n 20 --no-pager
-        return 1
+        log_error "Continuing anyway - DHCP might not work but you can try static IP"
     fi
     
     # Verify the AP is broadcasting
@@ -231,6 +261,12 @@ stop_ap() {
     if [ -f /etc/NetworkManager/conf.d/unmanaged-wlan.conf ]; then
         rm -f /etc/NetworkManager/conf.d/unmanaged-wlan.conf
         log_info "Removed NetworkManager unmanaged config"
+    fi
+    
+    # Restore original dnsmasq config
+    if [ -f /etc/dnsmasq.conf.backup ]; then
+        cp /etc/dnsmasq.conf.backup /etc/dnsmasq.conf
+        log_info "Restored original dnsmasq config"
     fi
     
     # Restart NetworkManager if it exists, otherwise try dhcpcd
