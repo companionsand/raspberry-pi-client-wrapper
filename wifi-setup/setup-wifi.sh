@@ -639,43 +639,53 @@ class SetupHandler(http.server.SimpleHTTPRequestHandler):
     
     def send_networks(self):
         try:
+            # Trigger a fresh scan first
+            try:
+                subprocess.run(['nmcli', 'device', 'wifi', 'rescan'], timeout=5, capture_output=True)
+                subprocess.run(['sleep', '2'])  # Wait for scan to complete
+            except:
+                pass  # If rescan fails, use cached results
+            
             # Scan for WiFi networks
             networks = []
+            
+            # Try nmcli first (more reliable and handles special characters better)
             try:
-                result = subprocess.run(['iwlist', 'wlan0', 'scan'], 
+                result = subprocess.run(['nmcli', '-t', '-f', 'SSID,SECURITY', 'device', 'wifi', 'list'],
                                       capture_output=True, text=True, timeout=10)
                 if result.returncode == 0:
-                    current_ssid = None
-                    for line in result.stdout.split('\n'):
-                        if 'ESSID:' in line:
-                            ssid = line.split('ESSID:')[1].strip().strip('"')
-                            if ssid:
-                                current_ssid = ssid
-                        elif 'Encryption key:' in line and current_ssid:
-                            encrypted = 'on' in line.lower()
-                            networks.append({
-                                'ssid': current_ssid,
-                                'encrypted': encrypted
-                            })
-                            current_ssid = None
-            except:
-                # Fallback to nmcli
+                    seen = set()
+                    for line in result.stdout.strip().split('\n'):
+                        if ':' in line or line.strip():  # Handle both formats
+                            parts = line.split(':', 1)  # Split only on first colon
+                            if len(parts) >= 1:
+                                ssid = parts[0].strip()
+                                encrypted = bool(parts[1].strip()) if len(parts) > 1 else False
+                                if ssid and ssid not in seen:
+                                    seen.add(ssid)
+                                    networks.append({
+                                        'ssid': ssid,
+                                        'encrypted': encrypted
+                                    })
+            except Exception as e:
+                # Fallback to iwlist if nmcli fails
                 try:
-                    result = subprocess.run(['nmcli', '-t', '-f', 'SSID,SECURITY', 'device', 'wifi', 'list'],
+                    result = subprocess.run(['iwlist', 'wlan0', 'scan'], 
                                           capture_output=True, text=True, timeout=10)
                     if result.returncode == 0:
-                        seen = set()
-                        for line in result.stdout.strip().split('\n'):
-                            if ':' in line:
-                                parts = line.split(':')
-                                if len(parts) >= 2:
-                                    ssid = parts[0].strip()
-                                    if ssid and ssid not in seen:
-                                        seen.add(ssid)
-                                        networks.append({
-                                            'ssid': ssid,
-                                            'encrypted': bool(parts[1].strip())
-                                        })
+                        current_ssid = None
+                        for line in result.stdout.split('\n'):
+                            if 'ESSID:' in line:
+                                ssid = line.split('ESSID:')[1].strip().strip('"')
+                                if ssid:
+                                    current_ssid = ssid
+                            elif 'Encryption key:' in line and current_ssid:
+                                encrypted = 'on' in line.lower()
+                                networks.append({
+                                    'ssid': current_ssid,
+                                    'encrypted': encrypted
+                                })
+                                current_ssid = None
                 except:
                     pass
             
@@ -685,7 +695,7 @@ class SetupHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({'networks': networks}).encode())
         except Exception as e:
-            self.send_error(500, str(e))
+            self.send_json_response(500, {'networks': [], 'error': str(e)})
     
     def send_json_response(self, status_code, data):
         self.send_response(status_code)
@@ -718,20 +728,42 @@ class SetupHandler(http.server.SimpleHTTPRequestHandler):
             
             # Configure WiFi using nmcli
             try:
+                # First, rescan for networks to ensure we have the latest list
+                subprocess.run(['nmcli', 'device', 'wifi', 'rescan'], timeout=10, capture_output=True)
+                subprocess.run(['sleep', '3'])  # Give it time to complete scan
+                
+                # Verify the network exists
+                scan_result = subprocess.run(['nmcli', '-t', '-f', 'SSID', 'device', 'wifi', 'list'],
+                                           capture_output=True, text=True, timeout=10)
+                available_networks = [line.strip() for line in scan_result.stdout.strip().split('\n') if line.strip()]
+                
+                if ssid not in available_networks:
+                    self.send_json_response(500, {
+                        'success': False, 
+                        'error': f'Network "{ssid}" not found. Available networks: {", ".join(available_networks[:5])}'
+                    })
+                    return
+                
+                # Try to connect
                 if password:
-                    result = subprocess.run(['nmcli', 'device', 'wifi', 'connect', ssid, 'password', password],
+                    result = subprocess.run(['nmcli', 'device', 'wifi', 'connect', ssid, 'password', password, 'ifname', 'wlan0'],
                                           capture_output=True, text=True, timeout=30)
                 else:
-                    result = subprocess.run(['nmcli', 'device', 'wifi', 'connect', ssid],
+                    result = subprocess.run(['nmcli', 'device', 'wifi', 'connect', ssid, 'ifname', 'wlan0'],
                                           capture_output=True, text=True, timeout=30)
                 
                 if result.returncode == 0:
                     self.send_json_response(200, {'success': True})
                 else:
                     error_msg = result.stderr.strip() if result.stderr else 'Unknown error'
-                    self.send_json_response(500, {'success': False, 'error': f'WiFi connection failed: {error_msg}'})
+                    # Clean up common error messages
+                    if 'Secrets were required' in error_msg:
+                        error_msg = 'Wrong password or authentication failed'
+                    elif 'No network with SSID' in error_msg:
+                        error_msg = f'Network "{ssid}" disappeared. Try rescanning.'
+                    self.send_json_response(500, {'success': False, 'error': f'Connection failed: {error_msg}'})
             except subprocess.TimeoutExpired:
-                self.send_json_response(500, {'success': False, 'error': 'WiFi connection timed out'})
+                self.send_json_response(500, {'success': False, 'error': 'WiFi connection timed out (30s). Network may be out of range.'})
             except Exception as e:
                 self.send_json_response(500, {'success': False, 'error': f'WiFi configuration error: {str(e)}'})
         except Exception as e:
@@ -1039,8 +1071,10 @@ main() {
                 return 0
             else
                 log_error "WiFi connected but no internet access. Retrying... ($retry_count/$MAX_RETRIES)"
-                log_info "Checking DNS resolution..."
-                host google.com 2>&1 || dig google.com 2>&1 | head -5 || true
+                log_info "Network diagnostics:"
+                # Show route and DNS info
+                ip route show 2>&1 | head -5 || true
+                cat /etc/resolv.conf 2>&1 | head -5 || true
                 
                 retry_count=$((retry_count + 1))
                 
