@@ -44,17 +44,46 @@ log_info "Starting Kin AI Agent Launcher..."
 
 # Step 1: Check internet connection
 log_info "Checking internet connection..."
-max_retries=30
+max_retries=5
 retry_count=0
 
 while ! ping -c 1 -W 2 8.8.8.8 &> /dev/null; do
     retry_count=$((retry_count + 1))
     if [ $retry_count -ge $max_retries ]; then
-        log_error "No internet connection after $max_retries attempts. Exiting."
-        exit 1
+        log_info "No internet connection detected. Entering WiFi setup mode..."
+        
+        # Check if WiFi setup script exists
+        WIFI_SETUP_SCRIPT="$WRAPPER_DIR/wifi-setup/setup-wifi.sh"
+        if [ -f "$WIFI_SETUP_SCRIPT" ]; then
+            log_info "Running WiFi setup script..."
+            sudo "$WIFI_SETUP_SCRIPT"
+            SETUP_RESULT=$?
+            
+            if [ $SETUP_RESULT -eq 0 ]; then
+                log_success "WiFi setup completed successfully"
+                # Wait a bit for network to stabilize
+                sleep 5
+                # Verify internet connection
+                if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
+                    log_success "Internet connection established"
+                else
+                    log_error "WiFi configured but no internet connection. Retrying setup..."
+                    # Will retry on next boot or restart
+                    exit 1
+                fi
+            else
+                log_error "WiFi setup failed. Will retry on next boot."
+                exit 1
+            fi
+        else
+            log_error "WiFi setup script not found at $WIFI_SETUP_SCRIPT"
+            log_error "Cannot proceed without internet or WiFi setup capability"
+            exit 1
+        fi
+    else
+        log_info "Waiting for internet connection... (attempt $retry_count/$max_retries)"
+        sleep 2
     fi
-    log_info "Waiting for internet connection... (attempt $retry_count/$max_retries)"
-    sleep 2
 done
 
 log_success "Internet connection established"

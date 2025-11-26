@@ -102,6 +102,8 @@ if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
         portaudio19-dev \
         python3-pyaudio \
         alsa-utils \
+        hostapd \
+        dnsmasq \
         git \
         curl \
         wget
@@ -114,6 +116,8 @@ else
         portaudio19-dev \
         python3-pyaudio \
         alsa-utils \
+        hostapd \
+        dnsmasq \
         pipewire \
         wireplumber \
         libspa-0.2-modules \
@@ -138,6 +142,12 @@ else
     git fetch origin "$GIT_BRANCH"
     git reset --hard "origin/$GIT_BRANCH"
     log_success "Repository updated"
+fi
+
+# Ensure WiFi setup script is executable
+if [ -f "$WRAPPER_DIR/wifi-setup/setup-wifi.sh" ]; then
+    chmod +x "$WRAPPER_DIR/wifi-setup/setup-wifi.sh"
+    log_success "WiFi setup script is executable"
 fi
 
 # Step 4: Create Python virtual environment
