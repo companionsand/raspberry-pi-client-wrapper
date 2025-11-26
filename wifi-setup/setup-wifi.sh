@@ -632,6 +632,13 @@ class SetupHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_error(500, str(e))
     
+    def send_json_response(self, status_code, data):
+        self.send_response(status_code)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
+    
     def handle_configure(self):
         try:
             content_length = int(self.headers['Content-Length'])
@@ -643,11 +650,11 @@ class SetupHandler(http.server.SimpleHTTPRequestHandler):
             pairing_code = data.get('pairing_code', '').strip()
             
             if not ssid:
-                self.send_error(400, 'SSID is required')
+                self.send_json_response(400, {'success': False, 'error': 'SSID is required'})
                 return
             
             if not pairing_code or len(pairing_code) != 4 or not pairing_code.isdigit():
-                self.send_error(400, 'Valid 4-digit pairing code is required')
+                self.send_json_response(400, {'success': False, 'error': 'Valid 4-digit pairing code is required'})
                 return
             
             # Save pairing code
@@ -664,17 +671,16 @@ class SetupHandler(http.server.SimpleHTTPRequestHandler):
                                           capture_output=True, text=True, timeout=30)
                 
                 if result.returncode == 0:
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json')
-                    self.send_header('Access-Control-Allow-Origin', '*')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({'success': True}).encode())
+                    self.send_json_response(200, {'success': True})
                 else:
-                    self.send_error(500, f'WiFi configuration failed: {result.stderr}')
+                    error_msg = result.stderr.strip() if result.stderr else 'Unknown error'
+                    self.send_json_response(500, {'success': False, 'error': f'WiFi connection failed: {error_msg}'})
+            except subprocess.TimeoutExpired:
+                self.send_json_response(500, {'success': False, 'error': 'WiFi connection timed out'})
             except Exception as e:
-                self.send_error(500, f'WiFi configuration error: {str(e)}')
+                self.send_json_response(500, {'success': False, 'error': f'WiFi configuration error: {str(e)}'})
         except Exception as e:
-            self.send_error(500, str(e))
+            self.send_json_response(500, {'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
     os.chdir(SETUP_DIR)
@@ -932,20 +938,56 @@ main() {
             stop_ap
             stop_http_server
             
-            # Wait a bit for WiFi to connect
-            sleep 10
+            # Wait for WiFi to connect and get IP (increased wait time)
+            log_info "Waiting for WiFi connection to establish..."
+            sleep 5
+            
+            # Check if WiFi is connected
+            wifi_connected=false
+            for i in {1..6}; do
+                if nmcli -t -f GENERAL.STATE device show wlan0 2>/dev/null | grep -q "connected"; then
+                    log_info "WiFi device connected"
+                    wifi_connected=true
+                    break
+                fi
+                log_info "Waiting for WiFi connection... ($i/6)"
+                sleep 5
+            done
+            
+            if [ "$wifi_connected" = false ]; then
+                log_error "WiFi connection failed - device not connected"
+                nmcli device show wlan0 | head -20
+                retry_count=$((retry_count + 1))
+                
+                if [ $retry_count -lt $MAX_RETRIES ]; then
+                    log_info "Retrying... ($retry_count/$MAX_RETRIES)"
+                    rm -f "$PAIRING_CODE_FILE"
+                    create_ap
+                    start_http_server_with_api
+                fi
+                continue
+            fi
             
             # Check internet connectivity
+            log_info "WiFi connected, checking internet access..."
             if check_internet; then
                 log_success "WiFi configured and internet connection established!"
                 return 0
             else
-                log_error "WiFi configured but no internet connection. Retrying... ($retry_count/$MAX_RETRIES)"
+                log_error "WiFi connected but no internet access. Retrying... ($retry_count/$MAX_RETRIES)"
+                log_info "Checking DNS resolution..."
+                nslookup google.com 2>&1 | head -10 || true
+                
                 retry_count=$((retry_count + 1))
                 
-                # Restart AP for retry
-                create_ap
-                start_http_server_with_api
+                if [ $retry_count -lt $MAX_RETRIES ]; then
+                    # Remove pairing code so user can try again
+                    rm -f "$PAIRING_CODE_FILE"
+                    
+                    # Restart AP for retry
+                    create_ap
+                    start_http_server_with_api
+                fi
             fi
         fi
     done
