@@ -83,7 +83,21 @@ create_ap() {
     
     # Stop existing network services
     systemctl stop wpa_supplicant 2>/dev/null || true
-    systemctl stop NetworkManager 2>/dev/null || true
+    
+    # Handle NetworkManager - prevent it from managing wlan0
+    if systemctl is-active --quiet NetworkManager; then
+        log_info "Configuring NetworkManager to ignore $AP_INTERFACE..."
+        
+        # Create NetworkManager config to ignore the interface
+        mkdir -p /etc/NetworkManager/conf.d/
+        cat > /etc/NetworkManager/conf.d/unmanaged-wlan.conf <<EOF
+[keyfile]
+unmanaged-devices=interface-name:$AP_INTERFACE
+EOF
+        
+        systemctl restart NetworkManager 2>/dev/null || true
+        sleep 2
+    fi
     
     # Try to stop dhcpcd if it exists, unmask it if needed
     if systemctl list-unit-files | grep -q "^dhcpcd.service"; then
@@ -106,7 +120,24 @@ wmm_enabled=0
 macaddr_acl=0
 auth_algs=1
 ignore_broadcast_ssid=0
+wpa=0
 EOF
+    
+    # Tell hostapd daemon where to find the config
+    if [ -f /etc/default/hostapd ]; then
+        sed -i 's/#DAEMON_CONF=""/DAEMON_CONF="\/etc\/hostapd\/hostapd.conf"/' /etc/default/hostapd
+        sed -i 's|DAEMON_CONF=.*|DAEMON_CONF="/etc/hostapd/hostapd.conf"|' /etc/default/hostapd
+    fi
+    
+    # For systemd-based systems
+    mkdir -p /etc/systemd/system/hostapd.service.d/
+    cat > /etc/systemd/system/hostapd.service.d/override.conf <<EOF
+[Service]
+ExecStart=
+ExecStart=/usr/sbin/hostapd /etc/hostapd/hostapd.conf
+EOF
+    
+    systemctl daemon-reload
     
     # Configure dnsmasq for DHCP
     cat > /etc/dnsmasq.conf <<EOF
@@ -130,22 +161,48 @@ EOF
     
     # Start services
     log_info "Starting hostapd..."
-    systemctl start hostapd
-    if [ $? -ne 0 ]; then
-        log_error "Failed to start hostapd"
+    systemctl restart hostapd
+    sleep 2
+    
+    if ! systemctl is-active --quiet hostapd; then
+        log_error "hostapd failed to start via systemctl, trying manual start..."
         journalctl -u hostapd -n 20 --no-pager
-        return 1
+        
+        # Try starting hostapd manually as a fallback
+        log_info "Attempting to start hostapd manually..."
+        killall hostapd 2>/dev/null || true
+        /usr/sbin/hostapd -B /etc/hostapd/hostapd.conf
+        sleep 2
+        
+        if ! pgrep -x hostapd > /dev/null; then
+            log_error "Failed to start hostapd manually. Checking configuration..."
+            /usr/sbin/hostapd -d /etc/hostapd/hostapd.conf &
+            sleep 3
+            killall hostapd 2>/dev/null || true
+            return 1
+        fi
+        log_info "hostapd started manually"
     fi
     
     log_info "Starting dnsmasq..."
-    systemctl start dnsmasq
-    if [ $? -ne 0 ]; then
+    systemctl restart dnsmasq
+    sleep 1
+    
+    if ! systemctl is-active --quiet dnsmasq; then
         log_error "Failed to start dnsmasq"
         journalctl -u dnsmasq -n 20 --no-pager
         return 1
     fi
     
-    log_success "WiFi access point created"
+    # Verify the AP is broadcasting
+    sleep 2
+    if iw dev "$AP_INTERFACE" info | grep -q "type AP"; then
+        log_success "WiFi access point created and broadcasting"
+    else
+        log_error "Interface is not in AP mode"
+        iw dev "$AP_INTERFACE" info
+        return 1
+    fi
 }
 
 # Function to stop WiFi AP
@@ -159,6 +216,9 @@ stop_ap() {
     systemctl mask hostapd 2>/dev/null || true
     systemctl mask dnsmasq 2>/dev/null || true
     
+    # Kill any manually started hostapd processes
+    killall hostapd 2>/dev/null || true
+    
     # Flush IP configuration
     ip addr flush dev "$AP_INTERFACE" 2>/dev/null || true
     
@@ -166,6 +226,12 @@ stop_ap() {
     ip link set "$AP_INTERFACE" down 2>/dev/null || true
     sleep 1
     ip link set "$AP_INTERFACE" up 2>/dev/null || true
+    
+    # Remove NetworkManager config if it exists
+    if [ -f /etc/NetworkManager/conf.d/unmanaged-wlan.conf ]; then
+        rm -f /etc/NetworkManager/conf.d/unmanaged-wlan.conf
+        log_info "Removed NetworkManager unmanaged config"
+    fi
     
     # Restart NetworkManager if it exists, otherwise try dhcpcd
     if systemctl list-unit-files | grep -q "^NetworkManager.service"; then
