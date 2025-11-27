@@ -175,12 +175,6 @@ else
     log_success "Repository updated"
 fi
 
-# Ensure WiFi setup script is executable
-if [ -f "$WRAPPER_DIR/wifi-setup/setup-wifi.sh" ]; then
-    chmod +x "$WRAPPER_DIR/wifi-setup/setup-wifi.sh"
-    log_success "WiFi setup script is executable"
-fi
-
 # Step 4: Create Python virtual environment
 log_info "Creating Python virtual environment..."
 
