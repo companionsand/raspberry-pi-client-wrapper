@@ -17,10 +17,6 @@ A comprehensive wrapper for deploying and managing the Kin AI Raspberry Pi clien
 2. **Device**: Unzip → run `./install.sh` → everything auto-configured
 3. **Runtime**: Device authenticates → fetches all API keys and settings from backend
 
-### Legacy Support
-
-Old devices with full `.env` files (Supabase credentials, API keys, etc.) continue to work with backward compatibility.
-
 ## Overview
 
 This wrapper automates the setup and management of the Kin AI voice assistant client on Raspberry Pi. It handles:
@@ -119,34 +115,17 @@ ENV=production
 # SKIP_ECHO_CANCEL_SETUP=true  (default: true - uses ReSpeaker hardware AEC)
 ```
 
-### Option B: Manual Installation (Legacy - No Admin Portal)
+### Option B: Manual Installation (No Admin Portal)
 
-For manual setup without admin portal (legacy method):
+For manual setup without the admin portal:
 
-1. **Create `.env` file** with either:
-
-   **Minimal (new auth):**
+1. **Create `.env` file** with:
 
    ```bash
    DEVICE_ID=your-device-id
    DEVICE_PRIVATE_KEY=your-private-key
    ENV=production
    OTEL_CENTRAL_COLLECTOR_ENDPOINT=https://your-collector.onrender.com:4318
-   ```
-
-   **Full (legacy auth):**
-
-   ```bash
-   DEVICE_ID=your-device-id
-   ENV=production
-   OTEL_CENTRAL_COLLECTOR_ENDPOINT=https://your-collector.onrender.com:4318
-   SUPABASE_URL=https://your-project.supabase.co
-   SUPABASE_ANON_KEY=your-key
-   EMAIL=your-email@example.com
-   PASSWORD=your-password
-   CONVERSATION_ORCHESTRATOR_URL=wss://your-backend.onrender.com/ws
-   ELEVENLABS_API_KEY=your-key
-   PICOVOICE_ACCESS_KEY=your-key
    ```
 
 2. **Run installation**:
@@ -232,9 +211,9 @@ These values will be automatically configured in the system and `.env` file.
 
 **If you installed manually with minimal .env:** ✅ **No configuration needed!** All keys fetched from backend.
 
-**If you installed manually without .env (legacy):**
+**If you installed manually without `.env`:**
 
-Configure the client with your API keys:
+Configure the client with your device credentials:
 
 ```bash
 nano ~/raspberry-pi-client-wrapper/raspberry-pi-client/.env
@@ -243,24 +222,18 @@ nano ~/raspberry-pi-client-wrapper/raspberry-pi-client/.env
 Fill in the required API keys and credentials:
 
 ```bash
-# Already configured by installer:
-DEVICE_ID=your-device-id        # ✓ Already set
-ENV=production                  # ✓ Already set
+# Required:
+DEVICE_ID=your-device-id
+DEVICE_PRIVATE_KEY=your-private-key
+ENV=production
+OTEL_CENTRAL_COLLECTOR_ENDPOINT=https://your-collector.onrender.com:4318
 
-# You need to fill in (legacy auth only):
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-supabase-anon-key-here
-EMAIL=your-email@example.com
-PASSWORD=your-password-here
-CONVERSATION_ORCHESTRATOR_URL=ws://your-backend:8001/ws
-ELEVENLABS_API_KEY=your-elevenlabs-api-key-here
-PICOVOICE_ACCESS_KEY=your-picovoice-access-key-here
+# Optional overrides:
+# CONVERSATION_ORCHESTRATOR_URL=wss://your-backend.onrender.com/ws
+# PICOVOICE_ACCESS_KEY=override-only-if-directed
 ```
 
-**Note:**
-
-- **New auth system**: Only `DEVICE_ID` and `DEVICE_PRIVATE_KEY` needed
-- **Legacy auth system**: Requires all API keys in `.env` file
+**Note:** The device authentication system only requires `DEVICE_ID` and `DEVICE_PRIVATE_KEY`. All runtime API keys, wake words, and LED settings are fetched securely from the backend.
 
 ### 4. Restart Services (Interactive Mode Only)
 

@@ -207,73 +207,67 @@ echo "  Configuration Setup"
 echo "========================================="
 echo ""
 
-# Check if this is a new device auth setup or legacy
-USE_DEVICE_AUTH=false
-if [ "$USE_ENV_FILE" = true ] && [ -n "$DEVICE_PRIVATE_KEY" ]; then
-    USE_DEVICE_AUTH=true
-    log_success "✨ New device authentication detected!"
-    log_info "This device uses the simplified authentication system"
+# Collect configuration from .env (if present) or prompt
+DEVICE_ID_INPUT="${DEVICE_ID:-}"
+DEVICE_PRIVATE_KEY_INPUT="${DEVICE_PRIVATE_KEY:-}"
+OTEL_ENDPOINT_INPUT="${OTEL_CENTRAL_COLLECTOR_ENDPOINT:-}"
+ENV_INPUT="${ENV:-}"
+
+if [ "$USE_ENV_FILE" = true ]; then
+    log_success "Using configuration from .env file when available"
 fi
 
-if [ "$USE_ENV_FILE" = true ] && [ -n "$DEVICE_ID" ] && [ -n "$OTEL_CENTRAL_COLLECTOR_ENDPOINT" ] && [ -n "$ENV" ]; then
-    log_success "Using configuration from .env file"
-    DEVICE_ID_INPUT="$DEVICE_ID"
-    DEVICE_PRIVATE_KEY_INPUT="$DEVICE_PRIVATE_KEY"
-    OTEL_ENDPOINT_INPUT="$OTEL_CENTRAL_COLLECTOR_ENDPOINT"
-    ENV_INPUT="$ENV"
-    
-    if [ "$USE_DEVICE_AUTH" = true ]; then
-        echo "  Device ID: $DEVICE_ID_INPUT"
-        echo "  Device Private Key: [CONFIGURED]"
-        echo "  OTEL Endpoint: $OTEL_ENDPOINT_INPUT"
-        echo "  Environment: $ENV_INPUT"
-        echo ""
-        log_info "✅ All runtime configuration will be fetched from the backend"
-    else
-        echo "  Device ID: $DEVICE_ID_INPUT"
-        echo "  OTEL Endpoint: $OTEL_ENDPOINT_INPUT"
-        echo "  Environment: $ENV_INPUT"
-    fi
-else
+if [ -z "$DEVICE_ID_INPUT" ]; then
     log_info "Please provide the following configuration details:"
-    echo ""
-
-    # Prompt for Device ID
     read -p "Enter Device ID: " DEVICE_ID_INPUT
     while [ -z "$DEVICE_ID_INPUT" ]; do
         log_error "Device ID cannot be empty"
         read -p "Enter Device ID: " DEVICE_ID_INPUT
     done
+fi
 
-    # Prompt for OTEL Central Collector Endpoint
+if [ -z "$DEVICE_PRIVATE_KEY_INPUT" ]; then
+    read -p "Enter Device Private Key: " DEVICE_PRIVATE_KEY_INPUT
+    while [ -z "$DEVICE_PRIVATE_KEY_INPUT" ]; do
+        log_error "Device Private Key cannot be empty"
+        read -p "Enter Device Private Key: " DEVICE_PRIVATE_KEY_INPUT
+    done
+fi
+
+if [ -z "$OTEL_ENDPOINT_INPUT" ]; then
     read -p "Enter OTEL Central Collector Endpoint (e.g., https://your-collector.onrender.com:4318): " OTEL_ENDPOINT_INPUT
     while [ -z "$OTEL_ENDPOINT_INPUT" ]; do
         log_error "OTEL endpoint cannot be empty"
         read -p "Enter OTEL Central Collector Endpoint: " OTEL_ENDPOINT_INPUT
     done
+fi
 
-    # Prompt for Environment
+if [ -z "$ENV_INPUT" ]; then
     read -p "Enter Environment (production/staging/development) [production]: " ENV_INPUT
     ENV_INPUT=${ENV_INPUT:-production}
-
-    log_success "Configuration details captured"
 fi
+
+log_success "Configuration details captured"
+echo "  Device ID: $DEVICE_ID_INPUT"
+echo "  Device Private Key: [CONFIGURED]"
+echo "  OTEL Endpoint: $OTEL_ENDPOINT_INPUT"
+echo "  Environment: $ENV_INPUT"
+echo ""
+log_info "✅ All runtime configuration will be fetched from the backend"
 
 # Step 7: Create client .env file
 log_info "Creating client .env file..."
 
 if [ ! -f "$CLIENT_DIR/.env" ]; then
-    if [ "$USE_DEVICE_AUTH" = true ]; then
-        # New device authentication - minimal .env file
-        log_info "Creating minimal .env file (new authentication system)..."
-        cat > "$CLIENT_DIR/.env" <<EOF
+    log_info "Creating minimal .env file (device authentication)..."
+    cat > "$CLIENT_DIR/.env" <<EOF
 # ============================================================================
 # Kin AI Raspberry Pi Client - Device Authentication
 # ============================================================================
-# This device uses the new authentication system.
+# This device uses the device authentication system.
 # All runtime configuration (API keys, wake word, etc.) is fetched from the
 # backend after authentication.
-
+#
 # Device Credentials (REQUIRED)
 DEVICE_ID=$DEVICE_ID_INPUT
 DEVICE_PRIVATE_KEY=$DEVICE_PRIVATE_KEY_INPUT
@@ -286,100 +280,8 @@ ENV=$ENV_INPUT
 # Optional: Override orchestrator URL for testing
 # CONVERSATION_ORCHESTRATOR_URL=ws://localhost:8001/ws
 EOF
-        log_success "✨ Client .env created with device authentication"
-        log_info "All API keys and settings will be fetched from the backend"
-        
-    else
-        # Legacy authentication - full .env file
-        log_info "Creating .env file (legacy authentication system)..."
-        
-        # Use values from wrapper .env if available, otherwise use placeholders
-        CLIENT_SUPABASE_URL=${SUPABASE_URL:-"https://your-project.supabase.co"}
-        CLIENT_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-"your-supabase-anon-key-here"}
-        CLIENT_EMAIL=${EMAIL:-"your-email@example.com"}
-        CLIENT_PASSWORD=${PASSWORD:-"your-password-here"}
-        CLIENT_ORCHESTRATOR_URL=${CONVERSATION_ORCHESTRATOR_URL:-"wss://your-backend.onrender.com/ws"}
-        CLIENT_ELEVENLABS_KEY=${ELEVENLABS_API_KEY:-"your-elevenlabs-api-key-here"}
-        CLIENT_PICOVOICE_KEY=${PICOVOICE_ACCESS_KEY:-"your-picovoice-access-key-here"}
-        CLIENT_WAKE_WORD=${WAKE_WORD:-"porcupine"}
-        CLIENT_LED_ENABLED=${LED_ENABLED:-"true"}
-        CLIENT_LED_BRIGHTNESS=${LED_BRIGHTNESS:-"60"}
-        
-        if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
-            # ALSA-only mode: No MIC_DEVICE/SPEAKER_DEVICE (auto-detect)
-            cat > "$CLIENT_DIR/.env" <<EOF
-# Device credentials
-DEVICE_ID=$DEVICE_ID_INPUT
-
-# Supabase authentication
-SUPABASE_URL=$CLIENT_SUPABASE_URL
-SUPABASE_ANON_KEY=$CLIENT_SUPABASE_ANON_KEY
-EMAIL=$CLIENT_EMAIL
-PASSWORD=$CLIENT_PASSWORD
-
-# Backend
-CONVERSATION_ORCHESTRATOR_URL=$CLIENT_ORCHESTRATOR_URL
-
-# ElevenLabs API
-ELEVENLABS_API_KEY=$CLIENT_ELEVENLABS_KEY
-
-# Wake word detection
-PICOVOICE_ACCESS_KEY=$CLIENT_PICOVOICE_KEY
-WAKE_WORD=$CLIENT_WAKE_WORD
-
-# LED Visual Feedback
-LED_ENABLED=$CLIENT_LED_ENABLED
-LED_BRIGHTNESS=$CLIENT_LED_BRIGHTNESS
-
-# OpenTelemetry
-OTEL_ENABLED=true
-OTEL_EXPORTER_ENDPOINT=http://localhost:4318
-ENV=$ENV_INPUT
-EOF
-        else
-            # PipeWire mode: Include MIC_DEVICE/SPEAKER_DEVICE for echo cancellation
-            cat > "$CLIENT_DIR/.env" <<EOF
-# Device credentials
-DEVICE_ID=$DEVICE_ID_INPUT
-
-# Supabase authentication
-SUPABASE_URL=$CLIENT_SUPABASE_URL
-SUPABASE_ANON_KEY=$CLIENT_SUPABASE_ANON_KEY
-EMAIL=$CLIENT_EMAIL
-PASSWORD=$CLIENT_PASSWORD
-
-# Backend
-CONVERSATION_ORCHESTRATOR_URL=$CLIENT_ORCHESTRATOR_URL
-
-# ElevenLabs API
-ELEVENLABS_API_KEY=$CLIENT_ELEVENLABS_KEY
-
-# Wake word detection
-PICOVOICE_ACCESS_KEY=$CLIENT_PICOVOICE_KEY
-WAKE_WORD=$CLIENT_WAKE_WORD
-
-# Audio devices (PipeWire echo cancellation)
-MIC_DEVICE=echo_cancel.mic
-SPEAKER_DEVICE=echo_cancel.speaker
-
-# LED Visual Feedback
-LED_ENABLED=$CLIENT_LED_ENABLED
-LED_BRIGHTNESS=$CLIENT_LED_BRIGHTNESS
-
-# OpenTelemetry
-OTEL_ENABLED=true
-OTEL_EXPORTER_ENDPOINT=http://localhost:4318
-ENV=$ENV_INPUT
-EOF
-        fi
-        
-        if [ "$USE_ENV_FILE" = true ] && [ -n "$SUPABASE_URL" ]; then
-            log_success "Client .env created with values from wrapper .env"
-        else
-            log_success ".env template created at $CLIENT_DIR/.env"
-            log_warning "IMPORTANT: Edit $CLIENT_DIR/.env with your actual API keys and credentials!"
-        fi
-    fi
+    log_success "✨ Client .env created with device authentication"
+    log_info "All API keys and settings will be fetched from the backend"
 else
     log_info ".env file already exists, skipping..."
 fi
@@ -766,77 +668,32 @@ log_success "Installation Complete!"
 echo "========================================="
 echo ""
 
-if [ "$USE_DEVICE_AUTH" = true ]; then
-    # New device authentication system
-    echo "✨ Device Authentication System Active"
-    echo ""
-    echo "✅ Services are now running:"
-    echo "   • OpenTelemetry Collector: Active"
-    echo "   • Agent Launcher: Active"
-    echo ""
-    echo "🔐 Authentication:"
-    echo "   • Device ID: $DEVICE_ID_INPUT"
-    echo "   • Private Key: [CONFIGURED]"
-    echo "   • All API keys fetched from backend automatically"
-    echo ""
-    echo "📝 Next Steps:"
-    echo "   1. View logs to monitor the client:"
-    echo "      sudo journalctl -u agent-launcher -f"
-    echo ""
-    echo "   2. Check service status:"
-    echo "      sudo systemctl status agent-launcher"
-    echo ""
-    echo "   3. If device is not paired with a user yet:"
-    echo "      Go to admin portal → Device Management"
-    echo "      Find your device and pair it with a user"
-    echo ""
-    echo "💡 Tips:"
-    echo "   • API keys are managed centrally in the admin portal"
-    echo "   • No need to update .env files on the device"
-    echo "   • Device will authenticate automatically on startup"
-    
-elif [ "$USE_ENV_FILE" = true ]; then
-    # Legacy authentication with .env
-    echo "✅ Services are now running:"
-    echo "   • OpenTelemetry Collector: Active"
-    echo "   • Agent Launcher: Active"
-    echo ""
-    echo "⚠️  Legacy Authentication Mode"
-    echo "   Consider reprovisioning this device via the admin portal"
-    echo "   for the new simplified authentication system"
-    echo ""
-    echo "📝 Next Steps:"
-    echo "   1. View logs to monitor the client:"
-    echo "      sudo journalctl -u agent-launcher -f"
-    echo ""
-    echo "   2. Check service status:"
-    echo "      sudo systemctl status agent-launcher"
-    echo ""
-    echo "   3. Reconfigure if needed:"
-    echo "      Edit $WRAPPER_DIR/.env and run ./install.sh again"
-else
-    # No .env file - manual configuration needed
-    echo "⚠️  IMPORTANT NEXT STEPS:"
-    echo ""
-    echo "1. Configure the client with API keys and credentials:"
-    echo "   nano $CLIENT_DIR/.env"
-    echo "   Fill in:"
-    echo "     - SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL, PASSWORD"
-    echo "     - CONVERSATION_ORCHESTRATOR_URL"
-    echo "     - ELEVENLABS_API_KEY"
-    echo "     - PICOVOICE_ACCESS_KEY"
-    echo ""
-    echo "2. Services are already running but need configuration:"
-    echo "   After editing .env, restart services:"
-    echo "   sudo systemctl restart agent-launcher"
-    echo ""
-    echo "3. Check service status:"
-    echo "   sudo systemctl status agent-launcher"
-    echo "   sudo systemctl status otelcol"
-    echo ""
-    echo "4. View logs:"
-    echo "   sudo journalctl -u agent-launcher -f"
-fi
+echo "✨ Device Authentication System Active"
+echo ""
+echo "✅ Services are now running:"
+echo "   • OpenTelemetry Collector: Active"
+echo "   • Agent Launcher: Active"
+echo ""
+echo "🔐 Authentication:"
+echo "   • Device ID: $DEVICE_ID_INPUT"
+echo "   • Private Key: [CONFIGURED]"
+echo "   • All API keys fetched from backend automatically"
+echo ""
+echo "📝 Next Steps:"
+echo "   1. View logs to monitor the client:"
+echo "      sudo journalctl -u agent-launcher -f"
+echo ""
+echo "   2. Check service status:"
+echo "      sudo systemctl status agent-launcher"
+echo ""
+echo "   3. If device is not paired with a user yet:"
+echo "      Go to admin portal → Device Management"
+echo "      Find your device and pair it with a user"
+echo ""
+echo "💡 Tips:"
+echo "   • API keys are managed centrally in the admin portal"
+echo "   • No need to update .env files on the device"
+echo "   • Device will authenticate automatically on startup"
 echo ""
 echo "✅ Configuration Applied:"
 echo "   Device ID: $DEVICE_ID_INPUT"
