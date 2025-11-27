@@ -23,7 +23,7 @@ build/
 .env.*.local
 
 # But keep the example
-!env.example
+!.env.example
 
 # OS files
 .DS_Store

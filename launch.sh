@@ -42,70 +42,41 @@ cd "$WRAPPER_DIR"
 
 log_info "Starting Kin AI Agent Launcher..."
 
-# Step 1: Check internet connection
+# Step 1: Check internet connection (brief check only)
+# WiFi setup is now handled in the Python client (main.py)
 log_info "Checking internet connection..."
-max_retries=5
-retry_count=0
-
-while ! ping -c 1 -W 2 8.8.8.8 &> /dev/null; do
-    retry_count=$((retry_count + 1))
-    if [ $retry_count -ge $max_retries ]; then
-        log_info "No internet connection detected. Entering WiFi setup mode..."
-        
-        # Check if WiFi setup script exists
-        WIFI_SETUP_SCRIPT="$WRAPPER_DIR/wifi-setup/setup-wifi.sh"
-        if [ -f "$WIFI_SETUP_SCRIPT" ]; then
-            log_info "Running WiFi setup script..."
-            sudo "$WIFI_SETUP_SCRIPT"
-            SETUP_RESULT=$?
-            
-            if [ $SETUP_RESULT -eq 0 ]; then
-                log_success "WiFi setup completed successfully"
-                # Wait a bit for network to stabilize
-                sleep 5
-                # Verify internet connection
-                if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
-                    log_success "Internet connection established"
-                else
-                    log_error "WiFi configured but no internet connection. Retrying setup..."
-                    # Will retry on next boot or restart
-                    exit 1
-                fi
-            else
-                log_error "WiFi setup failed. Will retry on next boot."
-                exit 1
-            fi
-        else
-            log_error "WiFi setup script not found at $WIFI_SETUP_SCRIPT"
-            log_error "Cannot proceed without internet or WiFi setup capability"
-            exit 1
-        fi
-    else
-        log_info "Waiting for internet connection... (attempt $retry_count/$max_retries)"
-        sleep 2
-    fi
-done
-
-log_success "Internet connection established"
+if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
+    log_success "Internet connection established"
+else
+    log_info "No internet connection - main.py will handle WiFi setup if enabled"
+fi
 
 # Step 2: Check if git repo exists
 if [ ! -d "$CLIENT_DIR" ]; then
-    log_info "Repository not found. Cloning from $GIT_REPO_URL..."
-    git clone -b "$GIT_BRANCH" "$GIT_REPO_URL" "$CLIENT_DIR"
-    log_success "Repository cloned successfully"
+    log_error "Repository not found at $CLIENT_DIR"
+    log_error "This should not happen - install.sh should have cloned it"
+    log_error "Please run install.sh first or check your installation"
+    exit 1
 else
-    log_info "Repository found. Pulling latest changes..."
+    log_info "Repository found. Checking for updates..."
     cd "$CLIENT_DIR"
     
-    # Stash any local changes (shouldn't be any, but just in case)
-    git stash --include-untracked 2>/dev/null || true
-    
-    # Fetch and pull latest changes
-    git fetch origin "$GIT_BRANCH"
-    git reset --hard "origin/$GIT_BRANCH"
+    # Try to pull latest changes (gracefully handle failure if no internet)
+    if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
+        # Stash any local changes (shouldn't be any, but just in case)
+        git stash --include-untracked 2>/dev/null || true
+        
+        # Fetch and pull latest changes
+        if git fetch origin "$GIT_BRANCH" 2>/dev/null && git reset --hard "origin/$GIT_BRANCH" 2>/dev/null; then
+            log_success "Repository updated to latest commit"
+        else
+            log_info "Could not update repository (using local version)"
+        fi
+    else
+        log_info "Skipping git pull (no internet - will use local version)"
+    fi
     
     cd "$WRAPPER_DIR"
-    log_success "Repository updated to latest commit"
 fi
 
 # Step 3: Setup virtual environment
@@ -130,9 +101,13 @@ log_info "Installing Python requirements..."
 cd "$CLIENT_DIR"
 
 if [ -f "requirements.txt" ]; then
-    pip install --upgrade pip -q
-    pip install -r requirements.txt -q
-    log_success "Requirements installed"
+    # Try to install requirements (gracefully handle failure if no internet)
+    if pip install --upgrade pip -q 2>/dev/null && pip install -r requirements.txt -q 2>/dev/null; then
+        log_success "Requirements installed"
+    else
+        log_info "Could not install/update requirements (using cached versions)"
+        log_info "If this is first boot without internet, some packages may be missing"
+    fi
 else
     log_error "requirements.txt not found in $CLIENT_DIR"
     exit 1
@@ -222,24 +197,31 @@ while true; do
         sleep 2
     fi
     
-    # Before restarting, pull latest changes from git
-    log_info "Checking for updates before restart..."
-    cd "$CLIENT_DIR"
-    git fetch origin "$GIT_BRANCH" 2>/dev/null || true
-    
-    # Check if there are updates
-    LOCAL=$(git rev-parse HEAD)
-    REMOTE=$(git rev-parse "origin/$GIT_BRANCH")
-    
-    if [ "$LOCAL" != "$REMOTE" ]; then
-        log_info "Updates found, pulling latest changes..."
-        git reset --hard "origin/$GIT_BRANCH"
+    # Before restarting, pull latest changes from git (if internet available)
+    if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
+        log_info "Checking for updates before restart..."
+        cd "$CLIENT_DIR"
         
-        # Reinstall requirements in case they changed
-        pip install -r requirements.txt -q
-        log_success "Updates applied"
+        if git fetch origin "$GIT_BRANCH" 2>/dev/null; then
+            # Check if there are updates
+            LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
+            REMOTE=$(git rev-parse "origin/$GIT_BRANCH" 2>/dev/null || echo "")
+            
+            if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
+                log_info "Updates found, pulling latest changes..."
+                git reset --hard "origin/$GIT_BRANCH" 2>/dev/null || log_info "Could not apply updates"
+                
+                # Reinstall requirements in case they changed
+                pip install -r requirements.txt -q 2>/dev/null || log_info "Could not update requirements"
+                log_success "Updates applied"
+            else
+                log_info "Already up to date"
+            fi
+        else
+            log_info "Could not check for updates (no internet)"
+        fi
     else
-        log_info "Already up to date"
+        log_info "Skipping update check (no internet)"
     fi
     
     cd "$CLIENT_DIR"
