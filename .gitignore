@@ -23,7 +23,7 @@ build/
 .env.*.local
 
 # But keep the example
-!env.example
+!.env.example
 
 # OS files
 .DS_Store
@@ -47,3 +47,6 @@ logs/
 
 # Test scripts
 test*.py
+
+# Activity tracking
+.last_activity

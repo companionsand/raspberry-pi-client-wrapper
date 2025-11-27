@@ -102,6 +102,12 @@ if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
         portaudio19-dev \
         python3-pyaudio \
         alsa-utils \
+        hostapd \
+        dnsmasq \
+        dnsutils \
+        bind9-host \
+        network-manager \
+        rfkill \
         git \
         curl \
         wget
@@ -114,6 +120,12 @@ else
         portaudio19-dev \
         python3-pyaudio \
         alsa-utils \
+        hostapd \
+        dnsmasq \
+        dnsutils \
+        bind9-host \
+        network-manager \
+        rfkill \
         pipewire \
         wireplumber \
         libspa-0.2-modules \
@@ -122,6 +134,29 @@ else
         wget
     log_success "System dependencies installed (including PipeWire)"
 fi
+
+# Configure sudoers for WiFi setup (allow pi user to run network commands without password)
+log_info "Configuring sudoers for WiFi setup..."
+sudo tee /etc/sudoers.d/kin-network > /dev/null <<'EOF'
+# Allow pi user to run network commands without password for WiFi setup
+pi ALL=(ALL) NOPASSWD: /usr/bin/nmcli
+pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl start hostapd
+pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop hostapd
+pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart hostapd
+pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl unmask hostapd
+pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl mask hostapd
+pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl start dnsmasq
+pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop dnsmasq
+pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart dnsmasq
+pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl unmask dnsmasq
+pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl mask dnsmasq
+pi ALL=(ALL) NOPASSWD: /usr/sbin/hostapd
+pi ALL=(ALL) NOPASSWD: /usr/bin/ip
+pi ALL=(ALL) NOPASSWD: /usr/sbin/ip
+pi ALL=(ALL) NOPASSWD: /usr/bin/rfkill
+EOF
+sudo chmod 0440 /etc/sudoers.d/kin-network
+log_success "Sudoers configured for WiFi setup"
 
 # Step 2: Clone repository
 log_info "Setting up repository..."
