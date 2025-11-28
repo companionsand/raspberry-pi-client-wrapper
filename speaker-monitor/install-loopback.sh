@@ -159,11 +159,12 @@ pcm.speaker_with_monitor {
 }
 
 # -----------------------------------------------------------------------------
-# Default devices (unchanged - keeps normal behavior)
+# Default output - routes to both speaker AND loopback for monitoring
+# This enables speaker monitoring without requiring app-specific config
 # -----------------------------------------------------------------------------
 pcm.!default {
     type plug
-    slave.pcm "${PLAYBACK_DEVICE}"
+    slave.pcm "speaker_with_monitor"
 }
 
 ctl.!default {
