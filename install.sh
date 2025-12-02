@@ -107,6 +107,8 @@ if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
         dnsutils \
         bind9-host \
         network-manager \
+        wireless-tools \
+        iw \
         rfkill \
         git \
         curl \
@@ -125,6 +127,8 @@ else
         dnsutils \
         bind9-host \
         network-manager \
+        wireless-tools \
+        iw \
         rfkill \
         pipewire \
         wireplumber \
