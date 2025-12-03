@@ -814,4 +814,4 @@ If you encounter issues:
 
 ## License
 
-Copyright © 2025 Kin Voice AI. All rights reserved.
+Copyright © 2025 Kin AI. All rights reserved.
