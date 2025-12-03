@@ -269,8 +269,8 @@ while true; do
     fi
     
     # Determine if we should send logs
-    local now=$(date +%s)
-    local include_logs="false"
+    now=$(date +%s)
+    include_logs="false"
     
     if [ $((now - LAST_LOG_SEND)) -ge $LOG_INTERVAL ]; then
         include_logs="true"
