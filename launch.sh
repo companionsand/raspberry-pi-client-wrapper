@@ -123,7 +123,19 @@ fi
 
 log_success "Configuration file found"
 
-# Step 6: Run the client with idle-time monitoring
+# Step 6: Start device monitor in background (for remote interventions)
+log_info "Starting device monitor in background..."
+if [ -f "$WRAPPER_DIR/device_monitor.sh" ]; then
+    chmod +x "$WRAPPER_DIR/device_monitor.sh"
+    # Start monitor in background, redirect output to journal via logger
+    "$WRAPPER_DIR/device_monitor.sh" 2>&1 | logger -t device-monitor &
+    MONITOR_PID=$!
+    log_success "Device monitor started (PID: $MONITOR_PID)"
+else
+    log_info "Device monitor script not found, skipping..."
+fi
+
+# Step 7: Run the client with idle-time monitoring
 log_info "Starting Kin AI client with idle-time monitoring..."
 log_info "Will restart after 3 hours of inactivity for updates"
 log_info "========================================="
