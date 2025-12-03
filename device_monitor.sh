@@ -210,51 +210,54 @@ execute_intervention() {
     
     log_info "Executing intervention: $intervention_type (ID: $intervention_id)"
     
-    # Mark as in progress
-    update_intervention_status "$intervention_id" "in_progress"
-    
-    local error_message=""
-    local success=true
-    
     case "$intervention_type" in
         "restart")
             log_info "Restarting agent-launcher service..."
-            if sudo systemctl restart agent-launcher 2>&1; then
-                log_success "Service restarted successfully"
-            else
-                error_message="Failed to restart service: $?"
-                success=false
-            fi
+            
+            # Mark as executed BEFORE restarting (we'll be killed when service restarts)
+            update_intervention_status "$intervention_id" "executed"
+            log_success "Intervention marked executed, restarting now..."
+            
+            # Give time for the status update to complete
+            sleep 1
+            
+            # This will kill us, but that's expected
+            sudo systemctl restart agent-launcher
             ;;
+            
         "reinstall")
             log_info "Running reinstall..."
-            if [ -f "$SCRIPT_DIR/reinstall.sh" ]; then
-                chmod +x "$SCRIPT_DIR/reinstall.sh"
-                if "$SCRIPT_DIR/reinstall.sh" 2>&1; then
-                    log_success "Reinstall completed successfully"
-                else
-                    error_message="Reinstall script failed with exit code: $?"
-                    success=false
-                fi
-            else
-                error_message="reinstall.sh not found"
-                success=false
+            
+            if [ ! -f "$SCRIPT_DIR/reinstall.sh" ]; then
+                update_intervention_status "$intervention_id" "failed" "reinstall.sh not found"
+                log_error "reinstall.sh not found"
+                return
             fi
+            
+            # Mark as executed BEFORE reinstalling (reinstall stops service which kills us)
+            update_intervention_status "$intervention_id" "executed"
+            log_success "Intervention marked executed, reinstalling now..."
+            
+            # Give time for the status update to complete
+            sleep 1
+            
+            # Run reinstall in background with nohup so it survives when we're killed
+            # The reinstall script will stop agent-launcher which kills this monitor process
+            chmod +x "$SCRIPT_DIR/reinstall.sh"
+            nohup "$SCRIPT_DIR/reinstall.sh" >> /tmp/reinstall.log 2>&1 &
+            disown
+            
+            log_info "Reinstall started in background (see /tmp/reinstall.log)"
+            
+            # Exit this monitor - reinstall will bring up a new one
+            exit 0
             ;;
+            
         *)
-            error_message="Unknown intervention type: $intervention_type"
-            success=false
+            update_intervention_status "$intervention_id" "failed" "Unknown intervention type: $intervention_type"
+            log_error "Unknown intervention type: $intervention_type"
             ;;
     esac
-    
-    # Update final status
-    if [ "$success" = true ]; then
-        update_intervention_status "$intervention_id" "completed"
-        log_success "Intervention $intervention_type completed"
-    else
-        update_intervention_status "$intervention_id" "failed" "$error_message"
-        log_error "Intervention $intervention_type failed: $error_message"
-    fi
 }
 
 # Main loop
