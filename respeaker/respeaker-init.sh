@@ -23,17 +23,28 @@ log_info "Initializing ReSpeaker tuning parameters..."
 # Find usb_4_mic_array directory (should be in home directory)
 USB_MIC_ARRAY_DIR="$HOME/usb_4_mic_array"
 
+# Auto-clone repository if not present
 if [ ! -d "$USB_MIC_ARRAY_DIR" ]; then
-    log_error "usb_4_mic_array directory not found at $USB_MIC_ARRAY_DIR"
-    log_error "Please clone the ReSpeaker tuning tools:"
-    log_error "  cd ~ && git clone https://github.com/respeaker/usb_4_mic_array.git"
-    exit 1
+    log_info "usb_4_mic_array not found, cloning repository..."
+    if git clone https://github.com/respeaker/usb_4_mic_array.git "$USB_MIC_ARRAY_DIR" 2>/dev/null; then
+        log_success "Repository cloned to $USB_MIC_ARRAY_DIR"
+    else
+        log_error "Failed to clone usb_4_mic_array repository"
+        log_error "Please clone manually: cd ~ && git clone https://github.com/respeaker/usb_4_mic_array.git"
+        exit 1
+    fi
 fi
 
 # Check if tuning.py exists
 if [ ! -f "$USB_MIC_ARRAY_DIR/tuning.py" ]; then
     log_error "tuning.py not found in $USB_MIC_ARRAY_DIR"
     exit 1
+fi
+
+# Ensure pyusb is installed (required for tuning.py)
+if ! python -c "import usb.core" 2>/dev/null; then
+    log_info "Installing pyusb dependency..."
+    pip install pyusb -q 2>/dev/null || log_info "Could not install pyusb (may already be installed or need sudo)"
 fi
 
 cd "$USB_MIC_ARRAY_DIR"
