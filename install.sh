@@ -52,7 +52,6 @@ fi
 
 # Set defaults for optional configuration
 GIT_BRANCH=${GIT_BRANCH:-"main"}  # Default to main branch
-SKIP_ECHO_CANCEL_SETUP=${SKIP_ECHO_CANCEL_SETUP:-"true"}  # Default to true (skip for ReSpeaker hardware AEC)
 
 # Print header
 echo "========================================="
@@ -87,57 +86,83 @@ log_info "Updating system packages..."
 sudo apt update
 log_success "Package list updated"
 
-# Step 1: Install system dependencies
+# Step 1: Install system dependencies (ALSA-only for ReSpeaker hardware AEC)
 log_info "Installing system dependencies..."
 log_info "This may take several minutes..."
 
-# Use SKIP_ECHO_CANCEL_SETUP for echo cancellation setup (already has default)
-SKIP_ECHO_CANCEL="$SKIP_ECHO_CANCEL_SETUP"
+sudo apt install -y \
+    python3-pip \
+    python3-venv \
+    portaudio19-dev \
+    python3-pyaudio \
+    alsa-utils \
+    hostapd \
+    dnsmasq \
+    dnsutils \
+    bind9-host \
+    network-manager \
+    wireless-tools \
+    iw \
+    rfkill \
+    git \
+    curl \
+    wget
+log_success "System dependencies installed"
 
-if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
-    log_info "SKIP_ECHO_CANCEL_SETUP=true - Installing ALSA-only dependencies (ReSpeaker hardware AEC)..."
-    sudo apt install -y \
-        python3-pip \
-        python3-venv \
-        portaudio19-dev \
-        python3-pyaudio \
-        alsa-utils \
-        hostapd \
-        dnsmasq \
-        dnsutils \
-        bind9-host \
-        network-manager \
-        wireless-tools \
-        iw \
-        rfkill \
-        git \
-        curl \
-        wget
-    log_success "ALSA-only dependencies installed (PipeWire skipped)"
-else
-    log_info "Installing dependencies including PipeWire for echo cancellation..."
-    sudo apt install -y \
-        python3-pip \
-        python3-venv \
-        portaudio19-dev \
-        python3-pyaudio \
-        alsa-utils \
-        hostapd \
-        dnsmasq \
-        dnsutils \
-        bind9-host \
-        network-manager \
-        wireless-tools \
-        iw \
-        rfkill \
-        pipewire \
-        wireplumber \
-        libspa-0.2-modules \
-        git \
-        curl \
-        wget
-    log_success "System dependencies installed (including PipeWire)"
+# Step 2: Ensure ALSA-only audio (disable PipeWire and PulseAudio if present)
+log_info "Ensuring ALSA-only audio configuration..."
+
+# Stop and disable PipeWire user services if running
+if systemctl --user is-active --quiet pipewire 2>/dev/null; then
+    log_info "Stopping PipeWire services..."
+    systemctl --user stop pipewire pipewire-pulse wireplumber 2>/dev/null || true
+    log_success "PipeWire services stopped"
 fi
+
+# Disable and mask PipeWire user services to prevent auto-start
+for service in pipewire pipewire-pulse pipewire.socket pipewire-pulse.socket wireplumber; do
+    if systemctl --user is-enabled --quiet "$service" 2>/dev/null; then
+        systemctl --user disable "$service" 2>/dev/null || true
+    fi
+    systemctl --user mask "$service" 2>/dev/null || true
+done
+log_info "PipeWire services disabled and masked"
+
+# Stop and disable PulseAudio user services if running
+if systemctl --user is-active --quiet pulseaudio 2>/dev/null; then
+    log_info "Stopping PulseAudio services..."
+    systemctl --user stop pulseaudio pulseaudio.socket 2>/dev/null || true
+    log_success "PulseAudio services stopped"
+fi
+
+# Disable and mask PulseAudio user services to prevent auto-start
+for service in pulseaudio pulseaudio.socket; do
+    if systemctl --user is-enabled --quiet "$service" 2>/dev/null; then
+        systemctl --user disable "$service" 2>/dev/null || true
+    fi
+    systemctl --user mask "$service" 2>/dev/null || true
+done
+log_info "PulseAudio services disabled and masked"
+
+# Kill any remaining pulseaudio or pipewire processes
+pkill -9 pulseaudio 2>/dev/null || true
+pkill -9 pipewire 2>/dev/null || true
+
+# Remove PipeWire echo cancellation config if it exists
+if [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ]; then
+    rm -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf"
+    log_info "Removed old PipeWire echo cancellation config"
+fi
+
+# Verify ALSA is working
+if command -v aplay &>/dev/null; then
+    log_success "ALSA utilities available"
+else
+    log_error "ALSA utilities not found"
+    exit 1
+fi
+
+log_success "ALSA-only audio configuration complete"
 
 # Configure sudoers for WiFi setup (allow pi user to run network commands without password)
 log_info "Configuring sudoers for WiFi setup..."
@@ -162,7 +187,36 @@ EOF
 sudo chmod 0440 /etc/sudoers.d/kin-network
 log_success "Sudoers configured for WiFi setup"
 
-# Step 2: Clone repository
+# Setup udev rules for ReSpeaker LED access
+log_info "Setting up udev rules for ReSpeaker LED control..."
+sudo tee /etc/udev/rules.d/99-respeaker.rules > /dev/null <<'EOF'
+# ReSpeaker 4-Mic Array USB device - allow access for LED control
+# The pixel_ring library uses USB HID to control the LED ring
+# Without these rules, only root can access the device
+
+# ReSpeaker 4-Mic Array (USB VID:PID 2886:0018)
+SUBSYSTEM=="usb", ATTR{idVendor}=="2886", ATTR{idProduct}=="0018", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="2886", ATTRS{idProduct}=="0018", MODE="0666", GROUP="plugdev"
+
+# Alternative ReSpeaker 4-Mic Linear Array (USB VID:PID 2886:0007)
+SUBSYSTEM=="usb", ATTR{idVendor}=="2886", ATTR{idProduct}=="0007", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="2886", ATTRS{idProduct}=="0007", MODE="0666", GROUP="plugdev"
+EOF
+sudo chmod 0644 /etc/udev/rules.d/99-respeaker.rules
+
+# Reload udev rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# Add user to plugdev group if not already
+if ! groups "$USER" | grep -q plugdev; then
+    sudo usermod -a -G plugdev "$USER"
+    log_info "Added $USER to plugdev group (reboot may be required for this to take effect)"
+fi
+
+log_success "ReSpeaker udev rules configured"
+
+# Step 3: Clone repository
 log_info "Setting up repository..."
 
 if [ ! -d "$CLIENT_DIR" ]; then
@@ -257,7 +311,7 @@ echo "  Device Private Key: [CONFIGURED]"
 echo "  OTEL Endpoint: $OTEL_ENDPOINT_INPUT"
 echo "  Environment: $ENV_INPUT"
 echo ""
-log_info "✅ All runtime configuration will be fetched from the backend"
+log_info "All runtime configuration will be fetched from the backend"
 
 # Step 7: Create client .env file
 log_info "Creating client .env file..."
@@ -284,7 +338,7 @@ ENV=$ENV_INPUT
 # Optional: Override orchestrator URL for testing
 # CONVERSATION_ORCHESTRATOR_URL=ws://localhost:8001/ws
 EOF
-    log_success "✨ Client .env created with device authentication"
+    log_success "Client .env created with device authentication"
     log_info "All API keys and settings will be fetched from the backend"
 else
     log_info ".env file already exists, skipping..."
@@ -323,203 +377,28 @@ else
     exit 1
 fi
 
-# Step 9: Setup PipeWire and Echo Cancellation
-if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
-    log_info "Skipping PipeWire and echo cancellation setup (SKIP_ECHO_CANCEL_SETUP=true)"
-    log_info "Using ALSA-only mode - devices will be auto-detected by client"
-    log_success "Audio setup complete (ALSA direct access)"
-else
-    log_info "Setting up PipeWire and Echo Cancellation..."
-
-    if systemctl --user is-active --quiet pipewire 2>/dev/null; then
-        log_success "PipeWire is running"
-    else
-        log_warning "PipeWire is not running (audio may not work)"
-        log_info "Starting PipeWire services..."
-        systemctl --user start pipewire pipewire-pulse wireplumber
-        sleep 2
-    fi
-
-    log_info "Ensuring PipeWire services are enabled for this user..."
-    if systemctl --user is-enabled --quiet pipewire 2>/dev/null && \
-       systemctl --user is-enabled --quiet pipewire-pulse 2>/dev/null && \
-       systemctl --user is-enabled --quiet wireplumber 2>/dev/null; then
-        log_success "PipeWire user services already enabled"
-    else
-        systemctl --user enable pipewire pipewire-pulse wireplumber >/dev/null
-        log_success "PipeWire user services enabled"
-    fi
-
-    # Run echo cancellation setup
-    echo ""
-    # Check if echo cancellation is already configured
-    # Verify both the config file exists AND the devices are actually working
-    NEED_RECONFIG=false
-    if [ -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf" ] && \
-       pactl list short sources 2>/dev/null | grep -q "echo_cancel.mic" && \
-       pactl list short sinks 2>/dev/null | grep -q "echo_cancel.speaker"; then
-        log_info "Echo cancellation already configured"
-        
-        # Test if devices are actually usable
-        if pactl get-source-volume echo_cancel.mic &>/dev/null && \
-           pactl get-sink-volume echo_cancel.speaker &>/dev/null; then
-            log_success "Echo cancellation devices verified and working"
-            
-            # Ensure .env has the echo cancel devices
-            if [ -f "$CLIENT_DIR/.env" ]; then
-                if ! grep -q "^MIC_DEVICE=echo_cancel.mic" "$CLIENT_DIR/.env"; then
-                    log_info "Updating .env with echo cancellation devices..."
-                    if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
-                        sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
-                    else
-                        echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
-                    fi
-                    if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
-                        sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
-                    else
-                        echo "SPEAKER_DEVICE=echo_cancel.speaker" >> "$CLIENT_DIR/.env"
-                    fi
-                    log_success ".env updated with echo cancellation devices"
-                fi
-            fi
-        else
-            log_warning "Echo cancellation devices exist but are not functional"
-            log_info "Will reconfigure echo cancellation..."
-            
-            # Remove existing config to trigger reconfiguration
-            rm -f "$HOME/.config/pipewire/pipewire-pulse.conf.d/20-echo-cancel.conf"
-            systemctl --user restart pipewire pipewire-pulse wireplumber
-            sleep 3
-            
-            NEED_RECONFIG=true
-        fi
-    else
-        log_info "Echo cancellation not configured or incomplete"
-        NEED_RECONFIG=true
-    fi
-
-    # Configure echo cancellation if needed
-    if [ "$NEED_RECONFIG" = true ]; then
-        if [ -f "$WRAPPER_DIR/pipewire/setup-echo-cancel.sh" ]; then
-            log_info "Configuring echo cancellation for barge-in capability..."
-            cd "$WRAPPER_DIR/pipewire"
-            chmod +x setup-echo-cancel.sh
-            
-            # Try auto-detection first, fall back to interactive if it fails
-            if [ "$USE_ENV_FILE" = true ]; then
-                # Fully automated mode - try auto-detect
-                log_info "Attempting auto-detection of default audio devices..."
-                if ./setup-echo-cancel.sh --auto 2>/dev/null; then
-                    log_success "Auto-detected and configured echo cancellation"
-                else
-                    log_warning "Auto-detection failed, falling back to interactive mode"
-                    ./setup-echo-cancel.sh
-                fi
-            else
-                # Interactive mode - auto-detect with user confirmation
-                ./setup-echo-cancel.sh
-            fi
-            
-            # Check if echo cancellation was set up successfully
-            if pactl list short sources | grep -q "echo_cancel.mic" && \
-               pactl list short sinks | grep -q "echo_cancel.speaker"; then
-                
-                # Test if devices are actually usable
-                if pactl get-source-volume echo_cancel.mic &>/dev/null && \
-                   pactl get-sink-volume echo_cancel.speaker &>/dev/null; then
-                    log_success "Echo cancellation configured and verified"
-                    
-                    # Automatically update .env with echo cancel devices
-                    if [ -f "$CLIENT_DIR/.env" ]; then
-                        log_info "Updating .env with echo cancellation devices..."
-                        # Update MIC_DEVICE if it exists
-                        if grep -q "^MIC_DEVICE=" "$CLIENT_DIR/.env"; then
-                            sed -i 's/^MIC_DEVICE=.*/MIC_DEVICE=echo_cancel.mic/' "$CLIENT_DIR/.env"
-                        else
-                            echo "MIC_DEVICE=echo_cancel.mic" >> "$CLIENT_DIR/.env"
-                        fi
-                        # Update SPEAKER_DEVICE if it exists
-                        if grep -q "^SPEAKER_DEVICE=" "$CLIENT_DIR/.env"; then
-                            sed -i 's/^SPEAKER_DEVICE=.*/SPEAKER_DEVICE=echo_cancel.speaker/' "$CLIENT_DIR/.env"
-                        else
-                            echo "SPEAKER_DEVICE=echo_cancel.speaker" >> "$CLIENT_DIR/.env"
-                        fi
-                        log_success ".env updated with echo cancellation devices"
-                    fi
-                else
-                    log_warning "Echo cancellation devices exist but are not functional"
-                    log_info "You may need to configure it manually later"
-                fi
-            else
-                log_warning "Echo cancellation setup incomplete"
-                log_info "You may need to configure it manually later"
-            fi
-        else
-            log_error "Echo cancellation setup script not found at $WRAPPER_DIR/pipewire/setup-echo-cancel.sh"
-            exit 1
-        fi
-    fi
-fi
-
-# Step 10: Setup agent-launcher systemd service
+# Step 9: Setup agent-launcher systemd service
 log_info "Setting up agent-launcher systemd service..."
-
-if [ "$SKIP_ECHO_CANCEL" != "true" ]; then
-    # Ensure linger is enabled so the user's PipeWire session stays alive at boot
-    log_info "Ensuring systemd linger is enabled for user $USER (required for PipeWire)..."
-    if loginctl show-user "$USER" -p Linger 2>/dev/null | grep -q "yes"; then
-        log_success "Systemd linger already enabled for $USER"
-    else
-        sudo loginctl enable-linger "$USER"
-        log_success "Enabled systemd linger for $USER"
-    fi
-fi
 
 # Generate environment file used by the systemd service
 AGENT_ENV_FILE="/etc/default/agent-launcher"
 AGENT_UID="$(id -u "$USER")"
 log_info "Writing agent-launcher environment to $AGENT_ENV_FILE..."
 
-if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
-    # ALSA-only mode - minimal environment
-    sudo tee "$AGENT_ENV_FILE" > /dev/null <<EOF
+# ALSA-only mode - minimal environment
+sudo tee "$AGENT_ENV_FILE" > /dev/null <<EOF
 # Automatically generated by raspberry-pi-client-wrapper/install.sh
-# ALSA-only mode (SKIP_ECHO_CANCEL_SETUP=true)
+# ALSA-only mode (ReSpeaker hardware AEC)
 AGENT_USER=$USER
 AGENT_UID=$AGENT_UID
 EOF
-    log_success "Environment file written (ALSA-only mode)"
-else
-    # PipeWire mode - include PulseAudio environment
-    sudo tee "$AGENT_ENV_FILE" > /dev/null <<EOF
-# Automatically generated by raspberry-pi-client-wrapper/install.sh
-# PipeWire mode (SKIP_ECHO_CANCEL_SETUP=false)
-AGENT_USER=$USER
-AGENT_UID=$AGENT_UID
-XDG_RUNTIME_DIR=/run/user/$AGENT_UID
-DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$AGENT_UID/bus
-PULSE_SERVER=unix:/run/user/$AGENT_UID/pulse/native
-PULSE_SOCKET_PATH=/run/user/$AGENT_UID/pulse/native
-EOF
-    log_success "Environment file written (PipeWire mode)"
-fi
+log_success "Environment file written"
 
 if [ -f "$WRAPPER_DIR/services/agent-launcher.service" ]; then
-    # Update service file with correct paths and conditionally include ExecStartPre
-    if [ "$SKIP_ECHO_CANCEL" = "true" ]; then
-        # ALSA-only mode: Remove ExecStartPre (PulseAudio socket check)
-        log_info "Generating service file (ALSA-only, no PulseAudio check)..."
-        sed "s|/home/pi/raspberry-pi-client-wrapper|$WRAPPER_DIR|g" \
-            "$WRAPPER_DIR/services/agent-launcher.service" | \
-            sed '/^ExecStartPre=/d' | \
-            sudo tee /etc/systemd/system/agent-launcher.service > /dev/null
-    else
-        # PipeWire mode: Keep ExecStartPre (PulseAudio socket check)
-        log_info "Generating service file (PipeWire mode, with PulseAudio check)..."
-        sed "s|/home/pi/raspberry-pi-client-wrapper|$WRAPPER_DIR|g" \
-            "$WRAPPER_DIR/services/agent-launcher.service" | \
-            sudo tee /etc/systemd/system/agent-launcher.service > /dev/null
-    fi
+    log_info "Generating service file..."
+    sed "s|/home/pi/raspberry-pi-client-wrapper|$WRAPPER_DIR|g" \
+        "$WRAPPER_DIR/services/agent-launcher.service" | \
+        sudo tee /etc/systemd/system/agent-launcher.service > /dev/null
     
     # Update User= field if not running as pi
     if [ "$USER" != "pi" ]; then
@@ -539,18 +418,18 @@ log_info "Running final checks..."
 
 # Check if all services are enabled
 if systemctl is-enabled --quiet otelcol; then
-    log_success "✓ OpenTelemetry Collector service enabled"
+    log_success "OpenTelemetry Collector service enabled"
 else
-    log_warning "✗ OpenTelemetry Collector service not enabled"
+    log_warning "OpenTelemetry Collector service not enabled"
 fi
 
 if systemctl is-enabled --quiet agent-launcher; then
-    log_success "✓ Agent launcher service enabled"
+    log_success "Agent launcher service enabled"
 else
-    log_warning "✗ Agent launcher service not enabled"
+    log_warning "Agent launcher service not enabled"
 fi
 
-# Step 11: Start services and verify installation
+# Step 10: Start services and verify installation
 echo ""
 log_info "Starting services and verifying installation..."
 
@@ -577,7 +456,7 @@ verify_installation() {
         error_messages+=("OpenTelemetry Collector failed to start")
         failed=true
     else
-        log_success "✓ OpenTelemetry Collector running"
+        log_success "OpenTelemetry Collector running"
     fi
     
     # Check agent-launcher - more thorough check
@@ -595,7 +474,7 @@ verify_installation() {
             error_messages+=("Agent launcher was active but then failed")
             failed=true
         else
-            log_success "✓ Agent launcher running"
+            log_success "Agent launcher running"
         fi
     fi
     
@@ -604,26 +483,7 @@ verify_installation() {
         error_messages+=("Agent launcher has errors in logs")
         failed=true
     else
-        log_success "✓ Agent launcher logs clean"
-    fi
-    
-    # Check echo cancellation devices (only if not skipped)
-    if [ "$SKIP_ECHO_CANCEL" != "true" ]; then
-        if ! pactl list short sources 2>/dev/null | grep -q "echo_cancel.mic"; then
-            error_messages+=("Echo cancellation microphone device not found")
-            failed=true
-        else
-            log_success "✓ Echo cancellation microphone available"
-        fi
-        
-        if ! pactl list short sinks 2>/dev/null | grep -q "echo_cancel.speaker"; then
-            error_messages+=("Echo cancellation speaker device not found")
-            failed=true
-        else
-            log_success "✓ Echo cancellation speaker available"
-        fi
-    else
-        log_success "✓ ALSA-only mode - skipping echo cancellation device check"
+        log_success "Agent launcher logs clean"
     fi
     
     if [ "$failed" = true ]; then
@@ -632,7 +492,7 @@ verify_installation() {
         echo ""
         echo "Errors detected:"
         for msg in "${error_messages[@]}"; do
-            echo "  ✗ $msg"
+            echo "  - $msg"
         done
         echo ""
         
@@ -672,18 +532,18 @@ log_success "Installation Complete!"
 echo "========================================="
 echo ""
 
-echo "✨ Device Authentication System Active"
+echo "Device Authentication System Active"
 echo ""
-echo "✅ Services are now running:"
-echo "   • OpenTelemetry Collector: Active"
-echo "   • Agent Launcher: Active"
+echo "Services are now running:"
+echo "   - OpenTelemetry Collector: Active"
+echo "   - Agent Launcher: Active"
 echo ""
-echo "🔐 Authentication:"
-echo "   • Device ID: $DEVICE_ID_INPUT"
-echo "   • Private Key: [CONFIGURED]"
-echo "   • All API keys fetched from backend automatically"
+echo "Authentication:"
+echo "   - Device ID: $DEVICE_ID_INPUT"
+echo "   - Private Key: [CONFIGURED]"
+echo "   - All API keys fetched from backend automatically"
 echo ""
-echo "📝 Next Steps:"
+echo "Next Steps:"
 echo "   1. View logs to monitor the client:"
 echo "      sudo journalctl -u agent-launcher -f"
 echo ""
@@ -691,27 +551,28 @@ echo "   2. Check service status:"
 echo "      sudo systemctl status agent-launcher"
 echo ""
 echo "   3. If device is not paired with a user yet:"
-echo "      Go to admin portal → Device Management"
+echo "      Go to admin portal -> Device Management"
 echo "      Find your device and pair it with a user"
 echo ""
-echo "💡 Tips:"
-echo "   • API keys are managed centrally in the admin portal"
-echo "   • No need to update .env files on the device"
-echo "   • Device will authenticate automatically on startup"
+echo "Tips:"
+echo "   - API keys are managed centrally in the admin portal"
+echo "   - No need to update .env files on the device"
+echo "   - Device will authenticate automatically on startup"
 echo ""
-echo "✅ Configuration Applied:"
+echo "Configuration Applied:"
 echo "   Device ID: $DEVICE_ID_INPUT"
 echo "   OTEL Endpoint: $OTEL_ENDPOINT_INPUT"
 echo "   Environment: $ENV_INPUT"
 echo ""
-echo "🔄 Auto-Restart Enabled:"
+echo "Auto-Restart Enabled:"
 echo "   If the client crashes or errors, it will automatically restart."
 echo "   The system will keep trying to run the client indefinitely."
 echo ""
-echo "🚀 Boot Behavior:"
+echo "Boot Behavior:"
 echo "   On every boot, the agent launcher will:"
 echo "     - Wait for internet connection"
 echo "     - Update code from git"
 echo "     - Install dependencies"
 echo "     - Launch the client"
 echo ""
+

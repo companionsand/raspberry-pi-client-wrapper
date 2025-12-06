@@ -125,17 +125,30 @@ log_success "Configuration file found"
 
 # Step 6: Start device monitor in background (for remote interventions)
 log_info "Starting device monitor in background..."
-if [ -f "$WRAPPER_DIR/device_monitor.sh" ]; then
-    chmod +x "$WRAPPER_DIR/device_monitor.sh"
+if [ -f "$WRAPPER_DIR/monitor/device_monitor.sh" ]; then
+    chmod +x "$WRAPPER_DIR/monitor/device_monitor.sh"
     # Start monitor in background, redirect output to journal via logger
-    "$WRAPPER_DIR/device_monitor.sh" 2>&1 | logger -t device-monitor &
+    "$WRAPPER_DIR/monitor/device_monitor.sh" 2>&1 | logger -t device-monitor &
     MONITOR_PID=$!
     log_success "Device monitor started (PID: $MONITOR_PID)"
 else
     log_info "Device monitor script not found, skipping..."
 fi
 
-# Step 7: Run the client with idle-time monitoring
+# Step 7: Initialize ReSpeaker (if present)
+log_info "Initializing ReSpeaker tuning parameters..."
+if [ -f "$WRAPPER_DIR/respeaker/respeaker-init.sh" ]; then
+    chmod +x "$WRAPPER_DIR/respeaker/respeaker-init.sh"
+    if "$WRAPPER_DIR/respeaker/respeaker-init.sh" 2>&1; then
+        log_success "ReSpeaker initialized successfully"
+    else
+        log_info "ReSpeaker initialization failed or not present - continuing anyway"
+    fi
+else
+    log_info "respeaker/respeaker-init.sh not found, skipping ReSpeaker initialization"
+fi
+
+# Step 8: Run the client with idle-time monitoring
 log_info "Starting Kin AI client with idle-time monitoring..."
 log_info "Will restart after 3 hours of inactivity for updates"
 log_info "========================================="

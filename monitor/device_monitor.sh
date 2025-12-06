@@ -11,7 +11,9 @@ set -e
 
 # Get the actual directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-CLIENT_DIR="$SCRIPT_DIR/raspberry-pi-client"
+# Wrapper dir is one level up from monitor/
+WRAPPER_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 
 # Logging
 LOG_PREFIX="[device-monitor]"
@@ -28,9 +30,9 @@ log_success() {
 }
 
 # Load .env file from wrapper directory
-if [ -f "$SCRIPT_DIR/.env" ]; then
+if [ -f "$WRAPPER_DIR/.env" ]; then
     set -a
-    source "$SCRIPT_DIR/.env"
+    source "$WRAPPER_DIR/.env"
     set +a
 fi
 
@@ -228,7 +230,7 @@ execute_intervention() {
         "reinstall")
             log_info "Running reinstall..."
             
-            if [ ! -f "$SCRIPT_DIR/reinstall.sh" ]; then
+            if [ ! -f "$WRAPPER_DIR/reinstall.sh" ]; then
                 update_intervention_status "$intervention_id" "failed" "reinstall.sh not found"
                 log_error "reinstall.sh not found"
                 return
@@ -243,8 +245,8 @@ execute_intervention() {
             
             # Run reinstall in background with nohup so it survives when we're killed
             # The reinstall script will stop agent-launcher which kills this monitor process
-            chmod +x "$SCRIPT_DIR/reinstall.sh"
-            nohup "$SCRIPT_DIR/reinstall.sh" >> /tmp/reinstall.log 2>&1 &
+            chmod +x "$WRAPPER_DIR/reinstall.sh"
+            nohup "$WRAPPER_DIR/reinstall.sh" >> /tmp/reinstall.log 2>&1 &
             disown
             
             log_info "Reinstall started in background (see /tmp/reinstall.log)"

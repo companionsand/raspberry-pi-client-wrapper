@@ -11,10 +11,8 @@ User=pi
 WorkingDirectory=/home/pi/raspberry-pi-client-wrapper
 ExecStart=/home/pi/raspberry-pi-client-wrapper/launch.sh
 
-# Ensure the PipeWire/PulseAudio sockets and DBus session are available even
-# when running headless via systemd at boot.
+# Environment file for runtime configuration
 EnvironmentFile=/etc/default/agent-launcher
-ExecStartPre=/bin/bash -c 'SOCKET_PATH="${PULSE_SOCKET_PATH:-${PULSE_SERVER#unix:}}"; for i in $(seq 1 20); do [ -n "$SOCKET_PATH" ] && [ -S "$SOCKET_PATH" ] && exit 0; sleep 1; done; echo "PulseAudio socket not ready at ${SOCKET_PATH:-unknown}" >&2; exit 1'
 
 # Auto-restart on crash/failure
 Restart=always
