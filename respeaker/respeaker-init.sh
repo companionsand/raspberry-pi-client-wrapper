@@ -50,16 +50,20 @@ fi
 cd "$USB_MIC_ARRAY_DIR"
 
 # Configuration parameters (can be overridden via environment variables)
-AGCGAIN_VALUE=${RESPEAKER_AGCGAIN:-2.0}
+AGCGAIN_VALUE=${RESPEAKER_AGCGAIN:-3.0}
 AGCONOFF_VALUE=${RESPEAKER_AGCONOFF:-0}
 AECFREEZEONOFF_VALUE=${RESPEAKER_AECFREEZEONOFF:-0}
 ECHOONOFF_VALUE=${RESPEAKER_ECHOONOFF:-1}
+HPFONOFF_VALUE=${RESPEAKER_HPFONOFF:-1}
+STATNOISEONOFF_VALUE=${RESPEAKER_STATNOISEONOFF:-1}
 
 log_info "Applying ReSpeaker configuration:"
 log_info "  AGCGAIN: $AGCGAIN_VALUE (microphone gain)"
 log_info "  AGCONOFF: $AGCONOFF_VALUE (0=freeze, 1=auto-adjust)"
 log_info "  AECFREEZEONOFF: $AECFREEZEONOFF_VALUE (0=AEC adaptation enabled)"
 log_info "  ECHOONOFF: $ECHOONOFF_VALUE (1=echo suppression ON)"
+log_info "  HPFONOFF: $HPFONOFF_VALUE (1=high-pass filter ON)"
+log_info "  STATNOISEONOFF: $STATNOISEONOFF_VALUE (1=stationary noise suppression ON)"
 
 # Apply settings with error handling
 apply_setting() {
@@ -114,6 +118,12 @@ apply_setting "AECFREEZEONOFF" "$AECFREEZEONOFF_VALUE" || SUCCESS=false
 
 # 4. Enable echo suppression
 apply_setting "ECHOONOFF" "$ECHOONOFF_VALUE" || SUCCESS=false
+
+# 5. Enable high-pass filter
+apply_setting "HPFONOFF" "$HPFONOFF_VALUE" || SUCCESS=false
+
+# 6. Enable stationary noise suppression
+apply_setting "STATNOISEONOFF" "$STATNOISEONOFF_VALUE" || SUCCESS=false
 
 if [ "$SUCCESS" = true ]; then
     log_success "ReSpeaker initialization complete!"
