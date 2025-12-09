@@ -148,7 +148,51 @@ else
     log_info "respeaker/respeaker-init.sh not found, skipping ReSpeaker initialization"
 fi
 
-# Step 8: Run the client with idle-time monitoring
+# Step 8: Fix WiFi AP conflicts (dnsmasq)
+log_info "Checking for WiFi access point conflicts..."
+
+# Check if WiFi setup is enabled
+SKIP_WIFI_SETUP=$(grep -E "^SKIP_WIFI_SETUP=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2 | tr -d ' "'"'" || echo "false")
+if [ "$SKIP_WIFI_SETUP" != "true" ]; then
+    log_info "WiFi setup enabled - checking for dnsmasq conflicts..."
+    
+    # Check if system dnsmasq is running
+    if pgrep -f "^/usr/sbin/dnsmasq" > /dev/null 2>&1; then
+        log_info "System dnsmasq detected - configuring to avoid conflicts..."
+        
+        # Create config to exclude wlan0 if it doesn't exist
+        if [ ! -f "/etc/dnsmasq.d/99-no-wlan0.conf" ]; then
+            log_info "Creating dnsmasq config to exclude wlan0..."
+            echo "# Don't bind to wlan0 - let NetworkManager handle it" | sudo tee /etc/dnsmasq.d/99-no-wlan0.conf > /dev/null
+            echo "except-interface=wlan0" | sudo tee -a /etc/dnsmasq.d/99-no-wlan0.conf > /dev/null
+            
+            # Restart system dnsmasq to apply changes
+            sudo systemctl restart dnsmasq 2>/dev/null || true
+            log_success "System dnsmasq configured to exclude wlan0"
+        else
+            log_info "dnsmasq config already exists"
+        fi
+    fi
+    
+    # Clean up any lingering NetworkManager dnsmasq processes
+    sudo pkill -9 -f "dnsmasq.*NetworkManager" 2>/dev/null || true
+    
+    # Clean up any existing Kin hotspot connection
+    sudo nmcli connection down Kin_Hotspot 2>/dev/null || true
+    sudo nmcli connection delete Kin_Hotspot 2>/dev/null || true
+    
+    # Flush wlan0 IP addresses
+    sudo ip addr flush dev wlan0 2>/dev/null || true
+    
+    # Give NetworkManager a moment to settle
+    sleep 2
+    
+    log_success "WiFi AP pre-flight checks complete"
+else
+    log_info "WiFi setup disabled - skipping AP conflict checks"
+fi
+
+# Step 9: Run the client with idle-time monitoring
 log_info "Starting Kin AI client with idle-time monitoring..."
 log_info "Will restart after 3 hours of inactivity for updates"
 log_info "========================================="
@@ -220,6 +264,24 @@ while true; do
     else
         log_info "main.py stopped, restarting..."
         sleep 2
+    fi
+    
+    # Before restarting, clean up WiFi AP resources if needed
+    SKIP_WIFI_SETUP=$(grep -E "^SKIP_WIFI_SETUP=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2 | tr -d ' "'"'" || echo "false")
+    if [ "$SKIP_WIFI_SETUP" != "true" ]; then
+        log_info "Cleaning up WiFi AP resources before restart..."
+        
+        # Clean up any lingering NetworkManager dnsmasq processes
+        sudo pkill -9 -f "dnsmasq.*NetworkManager" 2>/dev/null || true
+        
+        # Clean up any existing Kin hotspot connection
+        sudo nmcli connection down Kin_Hotspot 2>/dev/null || true
+        sudo nmcli connection delete Kin_Hotspot 2>/dev/null || true
+        
+        # Flush wlan0 IP addresses
+        sudo ip addr flush dev wlan0 2>/dev/null || true
+        
+        sleep 1
     fi
     
     # Before restarting, pull latest changes from git (if internet available)
