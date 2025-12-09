@@ -70,9 +70,9 @@ apply_setting() {
     local param_name=$1
     local param_value=$2
     
-    if python tuning.py "$param_name" "$param_value" &>/dev/null; then
+    if sudo python tuning.py "$param_name" "$param_value" &>/dev/null; then
         # Verify it stuck
-        local current_value=$(python tuning.py "$param_name" 2>/dev/null | tail -1 | tr -d '\r\n' || echo "ERROR")
+        local current_value=$(sudo python tuning.py "$param_name" 2>/dev/null | tail -1 | tr -d '\r\n' || echo "ERROR")
         
         # For numeric values, compare with tolerance
         if [[ "$current_value" =~ ^[0-9.]+$ ]] && [[ "$param_value" =~ ^[0-9.]+$ ]]; then
