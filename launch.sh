@@ -156,22 +156,19 @@ SKIP_WIFI_SETUP=$(grep -E "^SKIP_WIFI_SETUP=" "$CLIENT_DIR/.env" 2>/dev/null | c
 if [ "$SKIP_WIFI_SETUP" != "true" ]; then
     log_info "WiFi setup enabled - checking for dnsmasq conflicts..."
     
-    # Check if system dnsmasq is running
-    if pgrep -f "^/usr/sbin/dnsmasq" > /dev/null 2>&1; then
-        log_info "System dnsmasq detected - configuring to avoid conflicts..."
+    # Check if system dnsmasq service is enabled/running
+    if systemctl is-active --quiet dnsmasq 2>/dev/null; then
+        log_info "System dnsmasq service detected - disabling to avoid conflicts..."
         
-        # Create config to exclude wlan0 if it doesn't exist
-        if [ ! -f "/etc/dnsmasq.d/99-no-wlan0.conf" ]; then
-            log_info "Creating dnsmasq config to exclude wlan0..."
-            echo "# Don't bind to wlan0 - let NetworkManager handle it" | sudo tee /etc/dnsmasq.d/99-no-wlan0.conf > /dev/null
-            echo "except-interface=wlan0" | sudo tee -a /etc/dnsmasq.d/99-no-wlan0.conf > /dev/null
-            
-            # Restart system dnsmasq to apply changes
-            sudo systemctl restart dnsmasq 2>/dev/null || true
-            log_success "System dnsmasq configured to exclude wlan0"
-        else
-            log_info "dnsmasq config already exists"
-        fi
+        # Stop and disable system dnsmasq
+        # NetworkManager will handle DNS/DHCP for the hotspot
+        sudo systemctl stop dnsmasq 2>/dev/null || true
+        sudo systemctl disable dnsmasq 2>/dev/null || true
+        
+        log_success "System dnsmasq service disabled"
+        log_info "NetworkManager will handle DNS/DHCP for WiFi hotspot"
+    else
+        log_info "No system dnsmasq service detected"
     fi
     
     # Clean up any lingering NetworkManager dnsmasq processes
