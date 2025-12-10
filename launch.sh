@@ -178,18 +178,67 @@ if [ "$SKIP_WIFI_SETUP" != "true" ]; then
     sudo nmcli connection down Kin_Hotspot 2>/dev/null || true
     sudo nmcli connection delete Kin_Hotspot 2>/dev/null || true
     
-    # Flush wlan0 IP addresses
-    sudo ip addr flush dev wlan0 2>/dev/null || true
-    
-    # Give NetworkManager a moment to settle
-    sleep 2
+    # Note: We don't flush wlan0 IP addresses here anymore
+    # The WiFi setup code in access_point.py will handle flushing
+    # only when actually entering setup mode, preventing disruption
+    # to an existing working WiFi connection
     
     log_success "WiFi AP pre-flight checks complete"
 else
     log_info "WiFi setup disabled - skipping AP conflict checks"
 fi
 
-# Step 9: Run the client with idle-time monitoring
+# Step 9: Disable WiFi power save for optimal performance
+log_info "Disabling WiFi power save for better latency..."
+if sudo iw wlan0 set power_save off 2>/dev/null; then
+    log_success "WiFi power save disabled"
+else
+    log_info "Could not disable power save (interface may not be up yet)"
+fi
+
+# Step 10: Set CPU to performance mode for audio processing
+log_info "Setting CPU to performance mode..."
+if echo 'performance' | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null 2>&1; then
+    log_success "CPU performance mode enabled"
+else
+    log_info "Could not set CPU performance (may already be set or not supported)"
+fi
+
+# Step 11: Configure TCP keepalives for WebSocket stability
+log_info "Configuring TCP keepalives..."
+if sudo sysctl -w net.ipv4.tcp_keepalive_time=60 > /dev/null 2>&1 && \
+   sudo sysctl -w net.ipv4.tcp_keepalive_intvl=10 > /dev/null 2>&1 && \
+   sudo sysctl -w net.ipv4.tcp_keepalive_probes=6 > /dev/null 2>&1; then
+    log_success "TCP keepalives configured"
+else
+    log_info "Could not configure TCP keepalives"
+fi
+
+# Step 12: Wait for valid system time (NTP sync)
+log_info "Waiting for valid system time..."
+WAIT_TIME=0
+MAX_WAIT=120
+while [ $WAIT_TIME -lt $MAX_WAIT ]; do
+    CURRENT_YEAR=$(date +%Y)
+    if [ "$CURRENT_YEAR" -ge "2024" ]; then
+        log_success "System time is valid ($CURRENT_YEAR)"
+        break
+    fi
+    
+    # Force NTP sync
+    sudo timedatectl set-ntp true 2>/dev/null || true
+    
+    log_info "Waiting for NTP sync... ($WAIT_TIME/${MAX_WAIT}s)"
+    sleep 5
+    WAIT_TIME=$((WAIT_TIME + 5))
+done
+
+if [ "$CURRENT_YEAR" -lt "2024" ]; then
+    log_error "Time sync failed - SSL connections may fail"
+    log_error "Current year: $CURRENT_YEAR (expected >= 2024)"
+fi
+
+# Step 14: Run the client with idle-time monitoring
 log_info "Starting Kin AI client with idle-time monitoring..."
 log_info "Will restart after 3 hours of inactivity for updates"
 log_info "========================================="
@@ -275,8 +324,7 @@ while true; do
         sudo nmcli connection down Kin_Hotspot 2>/dev/null || true
         sudo nmcli connection delete Kin_Hotspot 2>/dev/null || true
         
-        # Flush wlan0 IP addresses
-        sudo ip addr flush dev wlan0 2>/dev/null || true
+        # Note: Not flushing wlan0 IP addresses to preserve working WiFi connection
         
         sleep 1
     fi

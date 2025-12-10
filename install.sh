@@ -413,6 +413,21 @@ else
     exit 1
 fi
 
+# Step 11: Run production reliability setup
+echo ""
+log_info "Setting up production reliability features..."
+if [ -f "$WRAPPER_DIR/reliability/production-setup.sh" ]; then
+    chmod +x "$WRAPPER_DIR/reliability/production-setup.sh"
+    if "$WRAPPER_DIR/reliability/production-setup.sh"; then
+        log_success "Production reliability features configured"
+    else
+        log_warning "Some production features may not be configured correctly"
+        log_info "This is not critical - installation will continue"
+    fi
+else
+    log_warning "Production setup script not found (skipping reliability features)"
+fi
+
 # Final checks
 log_info "Running final checks..."
 
@@ -523,6 +538,16 @@ verify_installation() {
 # Run verification
 if ! verify_installation; then
     exit 1
+fi
+
+# Run production settings verification
+echo ""
+log_info "Verifying production reliability settings..."
+if [ -f "$WRAPPER_DIR/reliability/verify-production.sh" ]; then
+    chmod +x "$WRAPPER_DIR/reliability/verify-production.sh"
+    "$WRAPPER_DIR/reliability/verify-production.sh"
+else
+    log_warning "Production verification script not found"
 fi
 
 # Installation complete

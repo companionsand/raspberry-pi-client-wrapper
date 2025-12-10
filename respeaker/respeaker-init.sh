@@ -49,13 +49,33 @@ fi
 
 cd "$USB_MIC_ARRAY_DIR"
 
-# Configuration parameters (can be overridden via environment variables)
-AGCGAIN_VALUE=${RESPEAKER_AGCGAIN:-3.0}
-AGCONOFF_VALUE=${RESPEAKER_AGCONOFF:-0}
-AECFREEZEONOFF_VALUE=${RESPEAKER_AECFREEZEONOFF:-0}
-ECHOONOFF_VALUE=${RESPEAKER_ECHOONOFF:-1}
-HPFONOFF_VALUE=${RESPEAKER_HPFONOFF:-1}
-STATNOISEONOFF_VALUE=${RESPEAKER_STATNOISEONOFF:-1}
+# Configuration parameters - load from file if available, otherwise use environment variables
+CONFIG_FILE="$HOME/.respeaker_config.json"
+
+if [ -f "$CONFIG_FILE" ]; then
+    log_info "Loading ReSpeaker config from $CONFIG_FILE (fetched from backend)"
+    
+    # Parse JSON using python3 (available in system python, not venv)
+    AGCGAIN_VALUE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('agc_gain', 3.0))" 2>/dev/null || echo "3.0")
+    AGCONOFF_VALUE=$(python3 -c "import json; print(int(json.load(open('$CONFIG_FILE')).get('agc_on_off', 0)))" 2>/dev/null || echo "0")
+    AECFREEZEONOFF_VALUE=$(python3 -c "import json; print(int(json.load(open('$CONFIG_FILE')).get('aec_freeze_on_off', 0)))" 2>/dev/null || echo "0")
+    ECHOONOFF_VALUE=$(python3 -c "import json; print(int(json.load(open('$CONFIG_FILE')).get('echo_on_off', 1)))" 2>/dev/null || echo "1")
+    HPFONOFF_VALUE=$(python3 -c "import json; print(int(json.load(open('$CONFIG_FILE')).get('hpf_on_off', 1)))" 2>/dev/null || echo "1")
+    STATNOISEONOFF_VALUE=$(python3 -c "import json; print(int(json.load(open('$CONFIG_FILE')).get('stat_noise_on_off', 1)))" 2>/dev/null || echo "1")
+    
+    log_success "Using backend-provided ReSpeaker configuration"
+else
+    log_info "No config file found at $CONFIG_FILE"
+    log_info "Using environment variables or defaults"
+    
+    # Fallback to environment variables (for manual override or backward compatibility)
+    AGCGAIN_VALUE=${RESPEAKER_AGCGAIN:-3.0}
+    AGCONOFF_VALUE=${RESPEAKER_AGCONOFF:-0}
+    AECFREEZEONOFF_VALUE=${RESPEAKER_AECFREEZEONOFF:-0}
+    ECHOONOFF_VALUE=${RESPEAKER_ECHOONOFF:-1}
+    HPFONOFF_VALUE=${RESPEAKER_HPFONOFF:-1}
+    STATNOISEONOFF_VALUE=${RESPEAKER_STATNOISEONOFF:-1}
+fi
 
 log_info "Applying ReSpeaker configuration:"
 log_info "  AGCGAIN: $AGCGAIN_VALUE (microphone gain)"
