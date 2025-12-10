@@ -62,6 +62,9 @@ if [ -f "$CONFIG_FILE" ]; then
     ECHOONOFF_VALUE=$(python3 -c "import json; print(int(json.load(open('$CONFIG_FILE')).get('echo_on_off', 1)))" 2>/dev/null || echo "1")
     HPFONOFF_VALUE=$(python3 -c "import json; print(int(json.load(open('$CONFIG_FILE')).get('hpf_on_off', 1)))" 2>/dev/null || echo "1")
     STATNOISEONOFF_VALUE=$(python3 -c "import json; print(int(json.load(open('$CONFIG_FILE')).get('stat_noise_on_off', 1)))" 2>/dev/null || echo "1")
+    GAMMA_E_VALUE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('gamma_e', 2.0))" 2>/dev/null || echo "2.0")
+    GAMMA_ENL_VALUE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('gamma_enl', 3.0))" 2>/dev/null || echo "3.0")
+    GAMMA_ETAIL_VALUE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('gamma_etail', 2.0))" 2>/dev/null || echo "2.0")
     
     log_success "Using backend-provided ReSpeaker configuration"
 else
@@ -75,6 +78,9 @@ else
     ECHOONOFF_VALUE=${RESPEAKER_ECHOONOFF:-1}
     HPFONOFF_VALUE=${RESPEAKER_HPFONOFF:-1}
     STATNOISEONOFF_VALUE=${RESPEAKER_STATNOISEONOFF:-1}
+    GAMMA_E_VALUE=${RESPEAKER_GAMMA_E:-2.0}
+    GAMMA_ENL_VALUE=${RESPEAKER_GAMMA_ENL:-3.0}
+    GAMMA_ETAIL_VALUE=${RESPEAKER_GAMMA_ETAIL:-2.0}
 fi
 
 log_info "Applying ReSpeaker configuration:"
@@ -84,6 +90,9 @@ log_info "  AECFREEZEONOFF: $AECFREEZEONOFF_VALUE (0=AEC adaptation enabled)"
 log_info "  ECHOONOFF: $ECHOONOFF_VALUE (1=echo suppression ON)"
 log_info "  HPFONOFF: $HPFONOFF_VALUE (1=high-pass filter ON)"
 log_info "  STATNOISEONOFF: $STATNOISEONOFF_VALUE (1=stationary noise suppression ON)"
+log_info "  GAMMA_E: $GAMMA_E_VALUE (echo suppression gamma)"
+log_info "  GAMMA_ENL: $GAMMA_ENL_VALUE (non-linear echo gamma)"
+log_info "  GAMMA_ETAIL: $GAMMA_ETAIL_VALUE (tail echo gamma)"
 
 # Apply settings with error handling
 apply_setting() {
@@ -144,6 +153,15 @@ apply_setting "HPFONOFF" "$HPFONOFF_VALUE" || SUCCESS=false
 
 # 6. Enable stationary noise suppression
 apply_setting "STATNOISEONOFF" "$STATNOISEONOFF_VALUE" || SUCCESS=false
+
+# 7. Set echo suppression gamma
+apply_setting "GAMMA_E" "$GAMMA_E_VALUE" || SUCCESS=false
+
+# 8. Set non-linear echo gamma
+apply_setting "GAMMA_ENL" "$GAMMA_ENL_VALUE" || SUCCESS=false
+
+# 9. Set tail echo gamma
+apply_setting "GAMMA_ETAIL" "$GAMMA_ETAIL_VALUE" || SUCCESS=false
 
 if [ "$SUCCESS" = true ]; then
     log_success "ReSpeaker initialization complete!"
