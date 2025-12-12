@@ -206,30 +206,39 @@ collect_metrics() {
         internet_available="true"
     fi
     
-    # WiFi Signal Strength (try iw first, fallback to iwconfig)
+    # WiFi Signal Strength (try iwconfig first as it's more reliable on RPi)
     local wifi_strength=0
     
-    # Try using iw command (more reliable)
-    if command -v iw >/dev/null 2>&1; then
-        local wifi_interface=$(iw dev 2>/dev/null | grep Interface | awk '{print $2}' | head -1)
-        if [ -n "$wifi_interface" ]; then
-            local signal_dbm=$(iw dev "$wifi_interface" link 2>/dev/null | grep signal | awk '{print $2}')
-            if [ -n "$signal_dbm" ]; then
-                # Convert dBm to percentage (rough estimate: -100 dBm = 0%, -50 dBm = 100%)
-                # Formula: percentage = 2 * (signal_dbm + 100)
-                wifi_strength=$(echo "scale=2; if ($signal_dbm > -50) 100 else if ($signal_dbm < -100) 0 else 2 * ($signal_dbm + 100)" | bc 2>/dev/null || echo "0")
-            fi
-        fi
-    fi
-    
-    # Fallback to iwconfig if iw didn't work
-    if [ "$wifi_strength" = "0" ] && command -v iwconfig >/dev/null 2>&1; then
+    # Try iwconfig first (most reliable on Raspberry Pi)
+    if command -v iwconfig >/dev/null 2>&1; then
         local wifi_quality=$(iwconfig 2>/dev/null | grep "Link Quality" | sed 's/.*Link Quality=\([0-9]*\)\/\([0-9]*\).*/\1 \2/')
         if [ -n "$wifi_quality" ]; then
             local current=$(echo "$wifi_quality" | awk '{print $1}')
             local max=$(echo "$wifi_quality" | awk '{print $2}')
             if [ -n "$current" ] && [ -n "$max" ] && [ "$max" != "0" ]; then
                 wifi_strength=$(echo "scale=2; ($current / $max) * 100" | bc 2>/dev/null || echo "0")
+            fi
+        fi
+    fi
+    
+    # Fallback to iw if iwconfig didn't work
+    if [ "$wifi_strength" = "0" ] && command -v iw >/dev/null 2>&1; then
+        local wifi_interface=$(iw dev 2>/dev/null | grep Interface | awk '{print $2}' | head -1)
+        if [ -n "$wifi_interface" ]; then
+            local signal_dbm=$(iw dev "$wifi_interface" link 2>/dev/null | grep signal | awk '{print $2}')
+            if [ -n "$signal_dbm" ] && [ "$signal_dbm" != "0" ]; then
+                # Convert dBm to percentage (rough estimate: -100 dBm = 0%, -50 dBm = 100%)
+                # Use simpler arithmetic that bash can handle
+                local signal_positive=$(echo "$signal_dbm * -1" | bc 2>/dev/null)
+                if [ -n "$signal_positive" ]; then
+                    if [ "$signal_positive" -le 50 ] 2>/dev/null; then
+                        wifi_strength=100
+                    elif [ "$signal_positive" -ge 100 ] 2>/dev/null; then
+                        wifi_strength=0
+                    else
+                        wifi_strength=$(echo "scale=2; (100 - $signal_positive) * 2" | bc 2>/dev/null || echo "0")
+                    fi
+                fi
             fi
         fi
     fi
