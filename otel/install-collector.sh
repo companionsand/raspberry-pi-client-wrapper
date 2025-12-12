@@ -55,12 +55,18 @@ else
     echo "✓ Downloaded and cached to $CACHED_TARBALL"
 fi
 
-# Extract from cache
+# Extract from cache (use a disk-based temp directory instead of RAM-based /tmp)
 echo "📦 Extracting..."
-cd /tmp
+# Create extraction directory on disk (not in RAM)
+EXTRACT_DIR="$CACHE_DIR/extract"
+mkdir -p "$EXTRACT_DIR"
+cd "$EXTRACT_DIR"
 tar -xzf "$CACHED_TARBALL"
 sudo mv otelcol-contrib /usr/local/bin/otelcol
 sudo chmod +x /usr/local/bin/otelcol
+# Clean up extraction directory
+cd "$SCRIPT_DIR"
+rm -rf "$EXTRACT_DIR"
 
 echo "✓ OpenTelemetry Collector installed to /usr/local/bin/otelcol"
 

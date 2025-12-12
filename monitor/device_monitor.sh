@@ -156,19 +156,96 @@ get_logs() {
     journalctl -u agent-launcher --no-pager -n $LOG_LINES 2>/dev/null || echo "Unable to retrieve logs"
 }
 
+# Function to collect device metrics
+collect_metrics() {
+    local metrics_json=""
+    
+    # CPU Usage (using top, get idle percentage and calculate usage)
+    local cpu_idle=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | head -1)
+    local cpu_usage=$(echo "scale=2; 100 - $cpu_idle" | bc 2>/dev/null || echo "0")
+    
+    # Memory Usage (using free)
+    local mem_stats=$(free | grep Mem)
+    local mem_total=$(echo "$mem_stats" | awk '{print $2}')
+    local mem_used=$(echo "$mem_stats" | awk '{print $3}')
+    local mem_usage=$(echo "scale=2; ($mem_used / $mem_total) * 100" | bc 2>/dev/null || echo "0")
+    
+    # Temperature (using vcgencmd for Raspberry Pi)
+    local temp=$(vcgencmd measure_temp 2>/dev/null | grep -o -E '[0-9]+\.[0-9]+' | head -1)
+    if [ -z "$temp" ]; then
+        temp="0"
+    fi
+    
+    # Fan Speed (using hwmon)
+    local fan_speed=0
+    if [ -d "/sys/class/hwmon" ]; then
+        # Find fan input file (usually fan1_input)
+        local fan_file=$(find /sys/class/hwmon -name "fan*_input" 2>/dev/null | head -1)
+        if [ -n "$fan_file" ]; then
+            fan_speed=$(cat "$fan_file" 2>/dev/null || echo "0")
+        fi
+    fi
+    
+    # Internet Available (ping 8.8.8.8 with 5 sec timeout)
+    local internet_available="false"
+    if ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1; then
+        internet_available="true"
+    fi
+    
+    # WiFi Signal Strength (using iwconfig)
+    local wifi_strength=0
+    local wifi_quality=$(iwconfig 2>/dev/null | grep "Link Quality" | sed 's/.*Link Quality=\([0-9]*\)\/\([0-9]*\).*/\1 \2/')
+    if [ -n "$wifi_quality" ]; then
+        local current=$(echo "$wifi_quality" | awk '{print $1}')
+        local max=$(echo "$wifi_quality" | awk '{print $2}')
+        if [ -n "$current" ] && [ -n "$max" ] && [ "$max" != "0" ]; then
+            wifi_strength=$(echo "scale=2; ($current / $max) * 100" | bc 2>/dev/null || echo "0")
+        fi
+    fi
+    
+    # Build JSON object
+    metrics_json=$(cat <<EOF
+{
+    "cpu_usage_percent": $cpu_usage,
+    "memory_usage_percent": $mem_usage,
+    "temperature": $temp,
+    "fan_speed": $fan_speed,
+    "internet_available": $internet_available,
+    "wifi_signal_strength": $wifi_strength
+}
+EOF
+    )
+    
+    echo "$metrics_json"
+}
+
 # Function to send heartbeat
 send_heartbeat() {
     local include_logs=$1
     local logs=""
+    local metrics=""
     
     if [ "$include_logs" = "true" ]; then
         logs=$(get_logs | python3 -c "import sys, json; print(json.dumps(sys.stdin.read()))" 2>/dev/null)
         # Remove surrounding quotes from json.dumps
         logs=${logs:1:-1}
+        
+        # Also collect metrics when sending logs (every 60 seconds)
+        metrics=$(collect_metrics)
     fi
     
     local body
-    if [ -n "$logs" ]; then
+    if [ -n "$logs" ] && [ -n "$metrics" ]; then
+        # Use Python to properly merge JSON objects
+        body=$(python3 <<EOF
+import json
+logs = """$logs"""
+metrics = $metrics
+data = {"logs": logs, "metrics": metrics}
+print(json.dumps(data))
+EOF
+        )
+    elif [ -n "$logs" ]; then
         body="{\"logs\": \"$logs\"}"
     else
         body="{}"
