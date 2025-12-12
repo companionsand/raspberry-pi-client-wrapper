@@ -176,13 +176,27 @@ collect_metrics() {
         temp="0"
     fi
     
-    # Fan Speed (using hwmon)
+    # Fan Speed (using hwmon or sensors)
     local fan_speed=0
+    
+    # Try to find fan via hwmon - check all hwmon*/fan*_input files
     if [ -d "/sys/class/hwmon" ]; then
-        # Find fan input file (usually fan1_input)
-        local fan_file=$(find /sys/class/hwmon -name "fan*_input" 2>/dev/null | head -1)
-        if [ -n "$fan_file" ]; then
-            fan_speed=$(cat "$fan_file" 2>/dev/null || echo "0")
+        for fan_file in /sys/class/hwmon/hwmon*/fan*_input; do
+            if [ -f "$fan_file" ]; then
+                local fan_rpm=$(cat "$fan_file" 2>/dev/null)
+                if [ -n "$fan_rpm" ] && [ "$fan_rpm" -gt "0" ] 2>/dev/null; then
+                    fan_speed=$fan_rpm
+                    break
+                fi
+            fi
+        done
+    fi
+    
+    # Fallback to sensors command if available and fan still 0
+    if [ "$fan_speed" = "0" ] && command -v sensors >/dev/null 2>&1; then
+        local sensor_fan=$(sensors 2>/dev/null | grep -i "fan" | grep -o '[0-9]\+' | head -1)
+        if [ -n "$sensor_fan" ]; then
+            fan_speed=$sensor_fan
         fi
     fi
     
@@ -192,14 +206,31 @@ collect_metrics() {
         internet_available="true"
     fi
     
-    # WiFi Signal Strength (using iwconfig)
+    # WiFi Signal Strength (try iw first, fallback to iwconfig)
     local wifi_strength=0
-    local wifi_quality=$(iwconfig 2>/dev/null | grep "Link Quality" | sed 's/.*Link Quality=\([0-9]*\)\/\([0-9]*\).*/\1 \2/')
-    if [ -n "$wifi_quality" ]; then
-        local current=$(echo "$wifi_quality" | awk '{print $1}')
-        local max=$(echo "$wifi_quality" | awk '{print $2}')
-        if [ -n "$current" ] && [ -n "$max" ] && [ "$max" != "0" ]; then
-            wifi_strength=$(echo "scale=2; ($current / $max) * 100" | bc 2>/dev/null || echo "0")
+    
+    # Try using iw command (more reliable)
+    if command -v iw >/dev/null 2>&1; then
+        local wifi_interface=$(iw dev 2>/dev/null | grep Interface | awk '{print $2}' | head -1)
+        if [ -n "$wifi_interface" ]; then
+            local signal_dbm=$(iw dev "$wifi_interface" link 2>/dev/null | grep signal | awk '{print $2}')
+            if [ -n "$signal_dbm" ]; then
+                # Convert dBm to percentage (rough estimate: -100 dBm = 0%, -50 dBm = 100%)
+                # Formula: percentage = 2 * (signal_dbm + 100)
+                wifi_strength=$(echo "scale=2; if ($signal_dbm > -50) 100 else if ($signal_dbm < -100) 0 else 2 * ($signal_dbm + 100)" | bc 2>/dev/null || echo "0")
+            fi
+        fi
+    fi
+    
+    # Fallback to iwconfig if iw didn't work
+    if [ "$wifi_strength" = "0" ] && command -v iwconfig >/dev/null 2>&1; then
+        local wifi_quality=$(iwconfig 2>/dev/null | grep "Link Quality" | sed 's/.*Link Quality=\([0-9]*\)\/\([0-9]*\).*/\1 \2/')
+        if [ -n "$wifi_quality" ]; then
+            local current=$(echo "$wifi_quality" | awk '{print $1}')
+            local max=$(echo "$wifi_quality" | awk '{print $2}')
+            if [ -n "$current" ] && [ -n "$max" ] && [ "$max" != "0" ]; then
+                wifi_strength=$(echo "scale=2; ($current / $max) * 100" | bc 2>/dev/null || echo "0")
+            fi
         fi
     fi
     
