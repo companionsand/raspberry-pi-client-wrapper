@@ -240,7 +240,8 @@ send_heartbeat() {
         body=$(python3 <<EOF
 import json
 logs = """$logs"""
-metrics = $metrics
+metrics_json = '''$metrics'''
+metrics = json.loads(metrics_json)
 data = {"logs": logs, "metrics": metrics}
 print(json.dumps(data))
 EOF
