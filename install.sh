@@ -247,10 +247,10 @@ else
     log_info "ReSpeaker tuning tools already present at $HOME/usb_4_mic_array"
 fi
 
-# Ensure pyusb is installed system-wide (required by tuning.py)
-if ! python3 -c "import usb.core" 2>/dev/null; then
-    log_info "Installing pyusb dependency..."
-    pip3 install pyusb -q 2>/dev/null || log_warning "Could not install pyusb (may need manual installation)"
+# Ensure pyusb is installed system-wide (required by tuning.py running as sudo)
+if ! sudo python3 -c "import usb.core" 2>/dev/null; then
+    log_info "Installing pyusb system-wide (required for sudo python3)..."
+    sudo pip3 install pyusb -q 2>/dev/null || log_warning "Could not install pyusb (may need manual installation)"
 fi
 
 # Step 4: Create Python virtual environment
