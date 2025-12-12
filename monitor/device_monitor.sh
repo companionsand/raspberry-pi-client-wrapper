@@ -18,7 +18,7 @@ CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 # Logging
 LOG_PREFIX="[device-monitor]"
 log_info() {
-    echo "$LOG_PREFIX [INFO] $1"
+    echo "$LOG_PREFIX [INFO] $1" >&2
 }
 
 log_error() {
@@ -26,7 +26,7 @@ log_error() {
 }
 
 log_success() {
-    echo "$LOG_PREFIX [SUCCESS] $1"
+    echo "$LOG_PREFIX [SUCCESS] $1" >&2
 }
 
 # Load .env file from wrapper directory
