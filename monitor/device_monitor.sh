@@ -160,26 +160,21 @@ get_logs() {
 collect_metrics() {
     local metrics_json=""
     
-    log_info "=== DEBUG: Starting metrics collection ==="
-    
     # CPU Usage (using top, get idle percentage and calculate usage)
     local cpu_idle=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | head -1)
     local cpu_usage=$(echo "scale=2; 100 - $cpu_idle" | bc 2>/dev/null || echo "0")
-    log_info "DEBUG: CPU usage = $cpu_usage%"
     
     # Memory Usage (using free)
     local mem_stats=$(free | grep Mem)
     local mem_total=$(echo "$mem_stats" | awk '{print $2}')
     local mem_used=$(echo "$mem_stats" | awk '{print $3}')
     local mem_usage=$(echo "scale=2; ($mem_used / $mem_total) * 100" | bc 2>/dev/null || echo "0")
-    log_info "DEBUG: Memory usage = $mem_usage%"
     
     # Temperature (using vcgencmd for Raspberry Pi)
     local temp=$(vcgencmd measure_temp 2>/dev/null | grep -o -E '[0-9]+\.[0-9]+' | head -1)
     if [ -z "$temp" ]; then
         temp="0"
     fi
-    log_info "DEBUG: Temperature = ${temp}°C"
     
     # Fan Speed (using hwmon or sensors)
     local fan_speed=0
@@ -191,7 +186,6 @@ collect_metrics() {
                 local fan_rpm=$(cat "$fan_file" 2>/dev/null)
                 if [ -n "$fan_rpm" ] && [ "$fan_rpm" -gt "0" ] 2>/dev/null; then
                     fan_speed=$fan_rpm
-                    log_info "DEBUG: Fan found at $fan_file = $fan_rpm RPM"
                     break
                 fi
             fi
@@ -205,19 +199,15 @@ collect_metrics() {
             fan_speed=$sensor_fan
         fi
     fi
-    log_info "DEBUG: Fan speed = $fan_speed RPM"
     
     # Internet Available (ping 8.8.8.8 with 5 sec timeout)
     local internet_available="false"
     if ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1; then
         internet_available="true"
     fi
-    log_info "DEBUG: Internet available = $internet_available"
     
     # WiFi Signal Strength (try iwconfig first as it's more reliable on RPi)
     local wifi_strength=0
-    
-    log_info "DEBUG: Starting WiFi detection..."
     
     # Try iwconfig first (most reliable on Raspberry Pi) - use full path for systemd
     local IWCONFIG_CMD=""
@@ -228,32 +218,20 @@ collect_metrics() {
     fi
     
     if [ -n "$IWCONFIG_CMD" ]; then
-        log_info "DEBUG: iwconfig is available at $IWCONFIG_CMD"
         local wifi_quality=$($IWCONFIG_CMD 2>/dev/null | grep "Link Quality" | sed 's/.*Link Quality=\([0-9]*\)\/\([0-9]*\).*/\1 \2/')
-        log_info "DEBUG: iwconfig wifi_quality = '$wifi_quality'"
         
         if [ -n "$wifi_quality" ]; then
             local current=$(echo "$wifi_quality" | awk '{print $1}')
             local max=$(echo "$wifi_quality" | awk '{print $2}')
-            log_info "DEBUG: iwconfig current=$current, max=$max"
             
             if [ -n "$current" ] && [ -n "$max" ] && [ "$max" != "0" ]; then
                 wifi_strength=$(echo "scale=2; ($current / $max) * 100" | bc 2>/dev/null || echo "0")
-                log_info "DEBUG: iwconfig calculated wifi_strength = $wifi_strength%"
-            else
-                log_info "DEBUG: iwconfig - invalid values"
             fi
-        else
-            log_info "DEBUG: iwconfig - no Link Quality found"
         fi
-    else
-        log_info "DEBUG: iwconfig not available"
     fi
     
     # Fallback to iw if iwconfig didn't work
     if [ "$wifi_strength" = "0" ] || [ "$wifi_strength" = "0.00" ]; then
-        log_info "DEBUG: Trying iw fallback..."
-        
         # Find iw command - use full path for systemd
         local IW_CMD=""
         if command -v iw >/dev/null 2>&1; then
@@ -263,19 +241,14 @@ collect_metrics() {
         fi
         
         if [ -n "$IW_CMD" ]; then
-            log_info "DEBUG: iw is available at $IW_CMD"
             local wifi_interface=$($IW_CMD dev 2>/dev/null | grep Interface | awk '{print $2}' | head -1)
-            log_info "DEBUG: iw wifi_interface = '$wifi_interface'"
             
             if [ -n "$wifi_interface" ]; then
                 local signal_dbm=$($IW_CMD dev "$wifi_interface" link 2>/dev/null | grep signal | awk '{print $2}')
-                log_info "DEBUG: iw signal_dbm = '$signal_dbm'"
                 
                 if [ -n "$signal_dbm" ] && [ "$signal_dbm" != "0" ]; then
                     # Convert dBm to percentage (rough estimate: -100 dBm = 0%, -50 dBm = 100%)
-                    # Use simpler arithmetic that bash can handle
                     local signal_positive=$(echo "$signal_dbm * -1" | bc 2>/dev/null)
-                    log_info "DEBUG: iw signal_positive = '$signal_positive'"
                     
                     if [ -n "$signal_positive" ]; then
                         if [ "$signal_positive" -le 50 ] 2>/dev/null; then
@@ -285,20 +258,11 @@ collect_metrics() {
                         else
                             wifi_strength=$(echo "scale=2; (100 - $signal_positive) * 2" | bc 2>/dev/null || echo "0")
                         fi
-                        log_info "DEBUG: iw calculated wifi_strength = $wifi_strength%"
                     fi
-                else
-                    log_info "DEBUG: iw - no signal value"
                 fi
-            else
-                log_info "DEBUG: iw - no interface found"
             fi
-        else
-            log_info "DEBUG: iw not available"
         fi
     fi
-    
-    log_info "DEBUG: Final WiFi signal strength = $wifi_strength%"
     
     # Build JSON object
     metrics_json=$(cat <<EOF
@@ -312,9 +276,6 @@ collect_metrics() {
 }
 EOF
     )
-    
-    log_info "DEBUG: Metrics JSON = $metrics_json"
-    log_info "=== DEBUG: Metrics collection complete ==="
     
     echo "$metrics_json"
 }
