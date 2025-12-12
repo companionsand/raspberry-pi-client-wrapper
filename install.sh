@@ -233,6 +233,22 @@ else
     log_success "Repository updated"
 fi
 
+# Step 3b: Install ReSpeaker USB dependencies
+# ReSpeaker tuning tools are now vendored in raspberry-pi-client (no external repo needed)
+log_info "Installing ReSpeaker dependencies..."
+if ! sudo python3 -c "import usb.core" 2>/dev/null; then
+    log_info "Installing python3-usb (required for ReSpeaker tuning)..."
+    # Use Debian package (PEP 668 compliant) - no pip needed
+    if sudo apt install -y python3-usb 2>&1 | grep -v "Reading\|Building" || true; then
+        log_success "python3-usb installed"
+    else
+        log_warning "Could not install python3-usb (may need manual installation)"
+        log_warning "ReSpeaker tuning will not work without python3-usb"
+    fi
+else
+    log_success "python3-usb already installed"
+fi
+
 # Step 4: Create Python virtual environment
 log_info "Creating Python virtual environment..."
 
