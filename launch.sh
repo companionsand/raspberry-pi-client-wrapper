@@ -135,18 +135,9 @@ else
     log_info "Device monitor script not found, skipping..."
 fi
 
-# Step 7: Initialize ReSpeaker (if present)
-log_info "Initializing ReSpeaker tuning parameters..."
-if [ -f "$WRAPPER_DIR/respeaker/respeaker-init.sh" ]; then
-    chmod +x "$WRAPPER_DIR/respeaker/respeaker-init.sh"
-    if "$WRAPPER_DIR/respeaker/respeaker-init.sh" 2>&1; then
-        log_success "ReSpeaker initialized successfully"
-    else
-        log_info "ReSpeaker initialization failed or not present - continuing anyway"
-    fi
-else
-    log_info "respeaker/respeaker-init.sh not found, skipping ReSpeaker initialization"
-fi
+# Step 7: ReSpeaker initialization
+# Note: ReSpeaker is now initialized by the Python client (main.py)
+# This allows ReSpeaker settings to be updated via OTA without wrapper changes
 
 # Step 8: Fix WiFi AP conflicts (dnsmasq)
 log_info "Checking for WiFi access point conflicts..."

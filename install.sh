@@ -233,6 +233,26 @@ else
     log_success "Repository updated"
 fi
 
+# Step 3b: Clone ReSpeaker tuning tools
+log_info "Setting up ReSpeaker tuning tools..."
+if [ ! -d "$HOME/usb_4_mic_array" ]; then
+    log_info "Cloning usb_4_mic_array repository..."
+    cd "$HOME"
+    if git clone https://github.com/respeaker/usb_4_mic_array.git 2>/dev/null; then
+        log_success "ReSpeaker tuning tools installed"
+    else
+        log_warning "Failed to clone usb_4_mic_array (not critical - client will handle gracefully)"
+    fi
+else
+    log_info "ReSpeaker tuning tools already present at $HOME/usb_4_mic_array"
+fi
+
+# Ensure pyusb is installed system-wide (required by tuning.py)
+if ! python3 -c "import usb.core" 2>/dev/null; then
+    log_info "Installing pyusb dependency..."
+    pip3 install pyusb -q 2>/dev/null || log_warning "Could not install pyusb (may need manual installation)"
+fi
+
 # Step 4: Create Python virtual environment
 log_info "Creating Python virtual environment..."
 
