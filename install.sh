@@ -233,24 +233,20 @@ else
     log_success "Repository updated"
 fi
 
-# Step 3b: Clone ReSpeaker tuning tools
-log_info "Setting up ReSpeaker tuning tools..."
-if [ ! -d "$HOME/usb_4_mic_array" ]; then
-    log_info "Cloning usb_4_mic_array repository..."
-    cd "$HOME"
-    if git clone https://github.com/respeaker/usb_4_mic_array.git 2>/dev/null; then
-        log_success "ReSpeaker tuning tools installed"
+# Step 3b: Install ReSpeaker USB dependencies
+# ReSpeaker tuning tools are now vendored in raspberry-pi-client (no external repo needed)
+log_info "Installing ReSpeaker dependencies..."
+if ! sudo python3 -c "import usb.core" 2>/dev/null; then
+    log_info "Installing python3-usb (required for ReSpeaker tuning)..."
+    # Use Debian package (PEP 668 compliant) - no pip needed
+    if sudo apt install -y python3-usb 2>&1 | grep -v "Reading\|Building" || true; then
+        log_success "python3-usb installed"
     else
-        log_warning "Failed to clone usb_4_mic_array (not critical - client will handle gracefully)"
+        log_warning "Could not install python3-usb (may need manual installation)"
+        log_warning "ReSpeaker tuning will not work without python3-usb"
     fi
 else
-    log_info "ReSpeaker tuning tools already present at $HOME/usb_4_mic_array"
-fi
-
-# Ensure pyusb is installed system-wide (required by tuning.py running as sudo)
-if ! sudo python3 -c "import usb.core" 2>/dev/null; then
-    log_info "Installing pyusb system-wide (required for sudo python3)..."
-    sudo pip3 install pyusb -q 2>/dev/null || log_warning "Could not install pyusb (may need manual installation)"
+    log_success "python3-usb already installed"
 fi
 
 # Step 4: Create Python virtual environment
