@@ -219,10 +219,17 @@ collect_metrics() {
     
     log_info "DEBUG: Starting WiFi detection..."
     
-    # Try iwconfig first (most reliable on Raspberry Pi)
+    # Try iwconfig first (most reliable on Raspberry Pi) - use full path for systemd
+    local IWCONFIG_CMD=""
     if command -v iwconfig >/dev/null 2>&1; then
-        log_info "DEBUG: iwconfig is available"
-        local wifi_quality=$(iwconfig 2>/dev/null | grep "Link Quality" | sed 's/.*Link Quality=\([0-9]*\)\/\([0-9]*\).*/\1 \2/')
+        IWCONFIG_CMD="iwconfig"
+    elif [ -x "/usr/sbin/iwconfig" ]; then
+        IWCONFIG_CMD="/usr/sbin/iwconfig"
+    fi
+    
+    if [ -n "$IWCONFIG_CMD" ]; then
+        log_info "DEBUG: iwconfig is available at $IWCONFIG_CMD"
+        local wifi_quality=$($IWCONFIG_CMD 2>/dev/null | grep "Link Quality" | sed 's/.*Link Quality=\([0-9]*\)\/\([0-9]*\).*/\1 \2/')
         log_info "DEBUG: iwconfig wifi_quality = '$wifi_quality'"
         
         if [ -n "$wifi_quality" ]; then
@@ -247,13 +254,21 @@ collect_metrics() {
     if [ "$wifi_strength" = "0" ] || [ "$wifi_strength" = "0.00" ]; then
         log_info "DEBUG: Trying iw fallback..."
         
+        # Find iw command - use full path for systemd
+        local IW_CMD=""
         if command -v iw >/dev/null 2>&1; then
-            log_info "DEBUG: iw is available"
-            local wifi_interface=$(iw dev 2>/dev/null | grep Interface | awk '{print $2}' | head -1)
+            IW_CMD="iw"
+        elif [ -x "/usr/sbin/iw" ]; then
+            IW_CMD="/usr/sbin/iw"
+        fi
+        
+        if [ -n "$IW_CMD" ]; then
+            log_info "DEBUG: iw is available at $IW_CMD"
+            local wifi_interface=$($IW_CMD dev 2>/dev/null | grep Interface | awk '{print $2}' | head -1)
             log_info "DEBUG: iw wifi_interface = '$wifi_interface'"
             
             if [ -n "$wifi_interface" ]; then
-                local signal_dbm=$(iw dev "$wifi_interface" link 2>/dev/null | grep signal | awk '{print $2}')
+                local signal_dbm=$($IW_CMD dev "$wifi_interface" link 2>/dev/null | grep signal | awk '{print $2}')
                 log_info "DEBUG: iw signal_dbm = '$signal_dbm'"
                 
                 if [ -n "$signal_dbm" ] && [ "$signal_dbm" != "0" ]; then
