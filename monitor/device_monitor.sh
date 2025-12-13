@@ -176,6 +176,12 @@ collect_metrics() {
         temp="0"
     fi
     
+    # Voltage (using vcgencmd for Raspberry Pi - core voltage)
+    local voltage=$(vcgencmd measure_volts core 2>/dev/null | grep -o -E '[0-9]+\.[0-9]+' | head -1)
+    if [ -z "$voltage" ]; then
+        voltage="0"
+    fi
+    
     # Fan Speed (using hwmon or sensors)
     local fan_speed=0
     
@@ -272,7 +278,8 @@ collect_metrics() {
     "temperature": $temp,
     "fan_speed": $fan_speed,
     "internet_available": $internet_available,
-    "wifi_signal_strength": $wifi_strength
+    "wifi_signal_strength": $wifi_strength,
+    "voltage": $voltage
 }
 EOF
     )
