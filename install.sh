@@ -519,9 +519,9 @@ verify_installation() {
     
     if [ "$failed" = true ]; then
         echo ""
-        log_error "Installation verification failed!"
+        log_warning "Installation verification found potential issues"
         echo ""
-        echo "Errors detected:"
+        echo "Issues detected:"
         for msg in "${error_messages[@]}"; do
             echo "  - $msg"
         done
@@ -533,18 +533,19 @@ verify_installation() {
         echo "========================================="
         echo ""
         
-        # Stop the agent-launcher service since it failed
-        log_info "Stopping agent-launcher service..."
-        sudo systemctl stop agent-launcher 2>/dev/null || true
-        log_success "Agent launcher stopped"
+        log_warning "Service will continue running despite verification issues."
+        log_info "This is normal for unpaired devices - setup mode will handle pairing."
+        log_info "If the device is unpaired, it will enter setup mode and create a WiFi hotspot."
+        log_info "Review logs above to ensure issues are expected."
+        echo ""
+        log_info "If you encounter persistent problems, you can:"
+        log_info "  - Check logs: sudo journalctl -u agent-launcher -f"
+        log_info "  - Restart service: sudo systemctl restart agent-launcher"
+        log_info "  - Reinstall: ./uninstall.sh followed by ./install.sh"
         echo ""
         
-        log_error "Installation failed. Please review the errors above."
-        log_info "You can try running ./install.sh again after fixing the issues."
-        log_info "Or run ./uninstall.sh to clean up and start fresh."
-        echo ""
-        
-        return 1
+        # Don't stop the service - let it continue running for setup mode
+        return 0
     fi
     
     log_success "Installation verified successfully!"
